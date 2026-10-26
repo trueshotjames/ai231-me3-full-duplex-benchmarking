@@ -141,14 +141,20 @@ def _mode(args) -> str:
 
 
 def _find_project(args) -> Optional[Path]:
-    """The assistant's project folder for local launches: --project, or the folder that holds fd-benchmark."""
-    for cand in (getattr(args, "project", None), ROOT.parent):
+    """The assistant's project folder: --project, FDBENCH_PROJECT (.env), or the folder that holds fd-benchmark."""
+    import os
+    for cand in (getattr(args, "project", None), os.environ.get("FDBENCH_PROJECT"), ROOT.parent):
         if cand and (Path(cand) / "assistant" / "main.py").exists():
             return Path(cand).resolve()
     return None
 
 
 def _project_python(project: Path) -> Optional[Path]:
+    """The assistant's own interpreter: FDBENCH_ASSISTANT_PYTHON (.env), else the project's venv."""
+    import os
+    env = os.environ.get("FDBENCH_ASSISTANT_PYTHON")
+    if env and Path(env).exists():
+        return Path(env)
     for rel in ("venv/Scripts/python.exe", ".venv/Scripts/python.exe", ".venv/bin/python", "venv/bin/python"):
         p = project / rel
         if p.exists():
@@ -189,9 +195,11 @@ def _direct_rig(args, run_dir: Optional[Path] = None):
     launched = None
     if where == "remote":
         ips = _lan_ips()
-        console.print(f"\n[bold]On the other machine (Pi), start her in benchmark mode:[/bold]")
+        console.print(f"\n[bold]On the other machine (Pi), start her in benchmark mode[/bold] "
+                      f"(PROJECT = her project folder there, e.g. ~/ME3):")
         for ip in ips or ["<this laptop's IP>"]:
-            console.print(f"  ~/ME3/.venv/bin/python ~/ME3/fd-benchmark/launch_assistant.py --url ws://{ip}:{port}")
+            console.print(f"  PROJECT/.venv/bin/python PROJECT/fd-benchmark/launch_assistant.py --url ws://{ip}:{port}")
+        console.print("[dim]Already running there with this address (tmux / service)? It reconnects by itself.[/dim]")
         console.print("[dim]If it cannot connect, allow TCP port %d in this laptop's firewall (docs/GUIDE.md step 4). "
                       "Waiting up to 5 min… (Ctrl+C to cancel)[/dim]" % port)
     else:
@@ -320,7 +328,10 @@ def cmd_devices(args):
 def cmd_check(args, judge=None):
     from .preflight import run_preflight
     ds_dir = Path(args.datasets) if args.datasets else DATASETS_DIR
-    pf = run_preflight(ds_dir, sim=args.sim, mode=_mode(args), port=getattr(args, "port", 8791), judge=judge, want_to_bot=getattr(args, "to_bot", None),
+    proj = _find_project(args) if _mode(args) == "direct" and (getattr(args, "where", None) or "local") == "local" else None
+    pf = run_preflight(ds_dir, sim=args.sim, mode=_mode(args), port=getattr(args, "port", 8791),
+                       where=(getattr(args, "where", None) or "local"), project=proj,
+                       project_python=(_project_python(proj) if proj else None), judge=judge, want_to_bot=getattr(args, "to_bot", None),
                        want_from_bot=getattr(args, "from_bot", None))
     _print_preflight(pf)
     return pf

@@ -9,6 +9,9 @@ own code is not changed and runs normally when started the usual way.
     python launch_assistant.py --url ws://192.168.1.10:8791 # fdbench runs on another machine (laptop), this is the Pi
     python launch_assistant.py --echo --url ws://...        # link test only: echoes audio back, no assistant needed
 
+Put FDBENCH_URL=ws://LAPTOP-IP:8791 (and FDBENCH_PROJECT if fd-benchmark is not inside the project) in
+fd-benchmark/.env on the Pi, and the command is just `python launch_assistant.py`.
+
 By default it keeps running: when fdbench ends a run and closes the socket, the assistant shuts down cleanly and
 the launcher waits for the next run, then starts her fresh. Ctrl+C stops it. `--once` exits after one run.
 
@@ -32,7 +35,21 @@ from urllib.parse import urlparse
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "adapters"))
 
-DEFAULT_URL = os.environ.get("FDBENCH_URL", "ws://127.0.0.1:8791")
+
+def _load_env(path: Path) -> None:
+    """fd-benchmark/.env: FDBENCH_URL, FDBENCH_PROJECT. Does not override variables already set."""
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.split("#")[0].strip().strip('"').strip("'"))
+    except FileNotFoundError:
+        pass
+
+
+_load_env(HERE / ".env")
+DEFAULT_URL = os.environ.get("FDBENCH_URL") or "ws://127.0.0.1:8791"
 
 
 def find_project(explicit: str | None) -> Path:

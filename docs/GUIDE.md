@@ -9,6 +9,17 @@ or speaker is used anywhere.
 `ME3` stands for the project folder on each machine (`...\Machine Exercise 3` on Windows, `~/ME3` on the Pi).
 Laptop commands are PowerShell; Pi commands are a terminal on the Pi (or an SSH session to it).
 
+**Where to put fd-benchmark.** Simplest: clone it *inside* the project folder as `fd-benchmark` on both machines;
+then everything is found automatically. Anywhere else works too: copy `.env.example` to `fd-benchmark/.env` and set
+`FDBENCH_PROJECT` to the project folder (and `FDBENCH_ASSISTANT_PYTHON` if her venv is not `PROJECT/.venv`).
+Pre-flight shows which project and Python it found. On the Pi, `FDBENCH_URL=ws://LAPTOP-IP:8791` in the same
+`.env` makes the Pi command just `launch_assistant.py` with no `--url`.
+
+```powershell
+cd "ME3"
+git clone https://github.com/trueshotjames/ai231-me3-full-duplex-benchmarking.git fd-benchmark
+```
+
 ## 1. [laptop] Install fdbench (once, ~5 min)
 
 ```powershell
@@ -155,7 +166,7 @@ tmux new -s bench '~/ME3/.venv/bin/python ~/ME3/fd-benchmark/launch_assistant.py
 
 **C. [Pi] systemd service**: starts at boot, restarts if it dies, no terminal at all.
 ```bash
-bash ~/ME3/fd-benchmark/scripts/install_pi_service.sh ws://LAPTOP-IP:8791
+bash ~/ME3/fd-benchmark/scripts/install_pi_service.sh ws://LAPTOP-IP:8791      # add the project path if not ~/ME3
 # log: journalctl -u fdbench-assistant -f      stop/remove: sudo systemctl disable --now fdbench-assistant
 ```
 Re-run the script with a new URL if the laptop's IP changes. While the service runs she is in benchmark mode;

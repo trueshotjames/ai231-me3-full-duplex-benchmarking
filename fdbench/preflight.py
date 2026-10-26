@@ -35,7 +35,8 @@ class Preflight:
                             if k in ("to_bot", "from_bot") and v is not None}}
 
 
-def run_preflight(dataset_dir: Path, sim: bool = False, judge=None, mode: str = "cables", port: int = 8791, want_to_bot: str | None = None,
+def run_preflight(dataset_dir: Path, sim: bool = False, judge=None, mode: str = "cables", port: int = 8791,
+                  where: str = "local", project: Optional[Path] = None, project_python: Optional[Path] = None, want_to_bot: str | None = None,
                   want_from_bot: str | None = None) -> Preflight:
     pf = Preflight()
     info = summary(ROOT)
@@ -117,6 +118,15 @@ def run_preflight(dataset_dir: Path, sim: bool = False, judge=None, mode: str = 
             pf.checks.append(Check(True, f"rig: direct feed on ws://127.0.0.1:{port} (no audio devices used)"))
         except Exception:  # noqa: BLE001
             pf.checks.append(Check(False, "rig: direct feed needs the websockets package", "pip install websockets"))
+        if where == "local":
+            pf.checks.append(Check(project is not None, "assistant project: " + (str(project) if project else "not found"),
+                                   "clone fd-benchmark inside the project folder, or set FDBENCH_PROJECT in fd-benchmark/.env"))
+            if project is not None:
+                pf.checks.append(Check(project_python is not None, "assistant python: " + (str(project_python) if project_python
+                                       else "no .venv in the project"),
+                                       "create the project's venv, or set FDBENCH_ASSISTANT_PYTHON in fd-benchmark/.env"))
+        else:
+            pf.checks.append(Check(True, "assistant runs on another machine (Pi); fdbench will listen on all interfaces"))
         import socket
         with socket.socket() as s:
             try:

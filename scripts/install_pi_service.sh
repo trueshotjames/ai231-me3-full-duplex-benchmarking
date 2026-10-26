@@ -2,9 +2,10 @@
 # Run the assistant in benchmark mode as a systemd service on the Pi, so it reconnects to fdbench for every run
 # and comes back after a reboot.   bash scripts/install_pi_service.sh ws://LAPTOP-IP:8791
 set -e
-URL="${1:?usage: install_pi_service.sh ws://LAPTOP-IP:8791}"
+URL="${1:?usage: install_pi_service.sh ws://LAPTOP-IP:8791 [PROJECT_DIR]}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"          # fd-benchmark
-PROJECT="$(cd "$HERE/.." && pwd)"                   # the folder that holds assistant/
+PROJECT="${2:-${FDBENCH_PROJECT:-$(cd "$HERE/.." && pwd)}}"   # the folder that holds assistant/
+[ -f "$PROJECT/assistant/main.py" ] || { echo "no assistant/main.py in $PROJECT; pass the project folder as 2nd argument"; exit 1; }
 PY="$PROJECT/.venv/bin/python"
 [ -x "$PY" ] || { echo "no venv at $PY (run app/install_pi.sh first)"; exit 1; }
 sudo tee /etc/systemd/system/fdbench-assistant.service >/dev/null <<UNIT
