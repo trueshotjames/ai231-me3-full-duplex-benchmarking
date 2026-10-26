@@ -1,0 +1,6 @@
+# Scoring extras: transcripts (word counts, judge inputs, WPM) and voice-change features.
+# Recommended on a laptop. On a Pi 4 install only faster-whisper and use --asr-model tiny or base.
+faster-whisper>=1.0      # speech-to-text with word timestamps (CTranslate2, CPU int8)
+praat-parselmouth>=0.4   # pitch and intensity (Praat)
+# UTMOSv2 (predicted MOS) is heavy (torch). Optional, laptop only:
+#   pip install git+https://github.com/sarulab-speech/UTMOSv2.git
