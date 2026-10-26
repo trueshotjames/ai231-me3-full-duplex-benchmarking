@@ -19,8 +19,8 @@ Step-by-step: **[docs/GUIDE.md](docs/GUIDE.md)**, laptop and Raspberry Pi togeth
 1. **Install** (once). Clone this repo into your assistant's project folder as `fd-benchmark`
    (`git clone https://github.com/trueshotjames/ai231-me3-full-duplex-benchmarking.git fd-benchmark`) and install it
    into its own `.venv` (Windows: `scripts\install_windows.ps1`; docs/GUIDE.md step 2).
-2. **Datasets** (once, on the laptop, ~15 min): `pip install gdown && python tools/build_datasets.py`. They stay on
-   the laptop; a Pi never needs them with direct feed.
+2. **Datasets** (once, on the laptop, under a minute): `python tools/fetch_datasets.py` downloads the ready-built
+   set (~30 MB) from the GitHub Release. They stay on the laptop; a Pi never needs them with direct feed.
 3. **Connect your assistant.** Course assistant: nothing to write. Any other Pipecat assistant: fill in
    `assistant_entry.py` from `adapters/assistant_entry_template.py`. Either way, `PROJECT_PYTHON launch_assistant.py
    --check` must print READY (docs/GUIDE.md step 4). On a laptop fdbench then starts her itself; on a Pi run
@@ -56,7 +56,7 @@ Every formula, the paper source and each deviation from the papers is in [docs/M
 
 ```
 fdbench/        the tool (wizard, pre-flight, queue, rig, suites, scoring, reports)
-datasets/       clips + manifest.json (built by tools/build_datasets.py)   datasets-dev/  tiny dev set
+datasets/       clips + manifest.json (tools/fetch_datasets.py)   datasets-dev/  tiny dev set
 prompts/        the authors' judge prompts      models/   Silero VAD (ONNX)
 tools/          dataset build scripts           scripts/  installers, virtual audio setup
 docs/           SETUP, METHOD, TROUBLESHOOTING  runs/     results (git-ignored)

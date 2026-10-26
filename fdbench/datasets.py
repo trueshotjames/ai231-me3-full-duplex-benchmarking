@@ -54,7 +54,7 @@ class Dataset:
         self.manifest = read_json(self.root / "manifest.json")
         if not self.manifest:
             raise FileNotFoundError(
-                f"No manifest.json in {self.root}. Build the datasets first: python tools/build_datasets.py "
+                f"No manifest.json in {self.root}. Get the datasets first: python tools/fetch_datasets.py "
                 f"(real data, on a laptop) or python tools/make_dev_dataset.py (tiny dev set).")
         self.groups: Dict[str, List[Clip]] = {}
         for gkey, g in self.manifest["groups"].items():

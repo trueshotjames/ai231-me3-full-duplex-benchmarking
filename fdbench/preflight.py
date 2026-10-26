@@ -95,18 +95,18 @@ def run_preflight(dataset_dir: Path, sim: bool = False, judge=None, mode: str = 
             absent = [g for g in GROUPS if counts.get(g, 0) == 0]
             if absent:
                 pf.checks.append(Check(False, f"datasets: {len(absent)} of {len(GROUPS)} test groups missing ({', '.join(absent)})",
-                                       "rebuild: python tools/build_datasets.py --src downloads/fdb"))
+                                       "python tools/fetch_datasets.py --force"))
             small = [g for g, n in counts.items() if n < 10]
             pf.checks.append(Check(not small, f"datasets: {sum(counts.values())} clips in {len(counts)} groups"
                                    + (f" · small groups: {', '.join(small)}" if small else ""),
-                                   "python tools/build_datasets.py builds the full set"))
+                                   "python tools/fetch_datasets.py --force gets the full set"))
             problems = ds.verify_checksums(max_files=60)
             pf.checks.append(Check(not problems, "dataset checksums ok (sampled)" if not problems
                                    else f"dataset problems: {problems[:3]}", "rebuild the datasets"))
         except Exception as e:  # noqa: BLE001
-            pf.checks.append(Check(False, f"datasets: {e}", "python tools/build_datasets.py"))
+            pf.checks.append(Check(False, f"datasets: {e}", "python tools/fetch_datasets.py --force"))
     else:
-        pf.checks.append(Check(False, f"no datasets in {dataset_dir}", "python tools/build_datasets.py (laptop) or "
+        pf.checks.append(Check(False, f"no datasets in {dataset_dir}", "python tools/fetch_datasets.py (laptop) or "
                                "python tools/make_dev_dataset.py (tiny dev set)"))
 
     # audio devices

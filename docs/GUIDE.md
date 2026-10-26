@@ -60,18 +60,19 @@ turn-taking metric still works, and `score` can add the judge later.
 
 **Check:** `FDB -m fdbench --version` prints a version. (Always run fdbench with `FDB`; plain `python` lacks the packages.)
 
-## 3. [laptop] Build the datasets (once, about 15 min, needs internet)
+## 3. [laptop] Get the datasets (once, under a minute, needs internet)
 
 ```powershell
-FDB -m pip install gdown
-FDB tools/build_datasets.py
+FDB tools/fetch_datasets.py
 ```
 
-If the download finished but nothing was built: `FDB tools/build_datasets.py --src downloads/fdb`. If Google Drive
-refuses the download, download the folder by hand from the link at the top of `tools/build_datasets.py`, unzip it,
-and pass `--src THAT_FOLDER`.
+This downloads the ready-built test set (about 30 MB) from this repo's GitHub Release and checks its checksum.
+It is the same fixed-seed set that `tools/build_datasets.py` builds from the authors' Google Drive, which stays as
+the fallback: `FDB -m pip install gdown`, then `FDB tools/build_datasets.py` (about 15 min; if Drive refuses,
+download the folder by hand from the link at the top of that file, unzip it, and pass `--src THAT_FOLDER`).
 
-**Check:** the script ends with about 280 clips in 9 groups, and `datasets/` has 9 subfolders.
+**Check:** it prints `datasets ready: 430 audio files in 9 groups`. The datasets stay on the laptop; a Pi never
+needs them with direct feed.
 
 ## 4. [laptop] Connect your assistant to the launcher
 
