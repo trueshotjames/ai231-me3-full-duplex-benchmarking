@@ -105,7 +105,7 @@ class Runner:
                                      item.group, clip, variant)
                     plan.expected = expected_text(plan)
                     row = table.add(item.index + 1, group.title + (" (clean)" if variant == "clean" else ""),
-                                    plan.describe_clip(), plan.expected)
+                                    clip.id, plan.expected, details=plan.details())
                     res = self._run_trial(plan, row, table)
                     item_results.append(res)
                     if res.get("error"):

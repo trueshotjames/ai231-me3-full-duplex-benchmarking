@@ -1,4 +1,4 @@
-"""Live terminal table during the run (rich). One row per trial; rows update in place."""
+"""Live terminal display during the run (rich): one multi-line block per trial, printed once."""
 from __future__ import annotations
 
 import threading
@@ -6,6 +6,7 @@ from typing import Optional
 
 from rich.console import Console, Group as RGroup
 from rich.live import Live
+from rich.padding import Padding
 from rich.table import Table
 from rich.text import Text
 
@@ -16,8 +17,9 @@ console = Console(width=None if sys.stdout.isatty() else 150)
 
 
 class LiveTable:
-    """Finished trials are printed once, as one row each, and scroll up like a log. Only a small block at the
-    bottom (header, the trial in progress, status, keys) redraws in place, so the terminal is never flooded."""
+    """Each finished trial is printed once, as a short block (header line, full transcripts, expected, actual,
+    verdict), and scrolls up like a log. Only a small region at the bottom (progress, the trial in progress,
+    status, keys) redraws in place, so the terminal is never flooded."""
 
     def __init__(self, student: str, total: int, rounds: int, keep_rows: int = 14, enabled: bool = True):
         self.student = student
@@ -30,30 +32,27 @@ class LiveTable:
         self._lock = threading.Lock()
         self._live: Optional[Live] = None
         self.status_line = ""
-        self._printed_header = False
 
-    # ---------------------------------------------------------------- rows
-    def _table(self, header: bool) -> Table:
-        t = Table(expand=True, show_header=header, show_edge=False, box=None, pad_edge=False,
-                  header_style="bold dim")
-        t.add_column("#", justify="right", width=4, no_wrap=True)
-        t.add_column("test", width=24, no_wrap=True, overflow="ellipsis")
-        t.add_column("clip", ratio=3, no_wrap=True, overflow="ellipsis")
-        t.add_column("expected", ratio=2, no_wrap=True, overflow="ellipsis")
-        t.add_column("actual", ratio=3, no_wrap=True, overflow="ellipsis")
-        t.add_column("verdict", width=26, no_wrap=True, overflow="ellipsis")
-        return t
-
-    def _add_row(self, t: Table, r: dict) -> None:
-        v = Text(str(r["verdict"]))
-        if r["ok"] is True:
-            v.stylize("green")
-        elif r["ok"] is False:
-            v.stylize("red")
-        else:
-            v.stylize("yellow")
-        actual = Text(str(r["actual"]), style="yellow" if r.get("live") else "")
-        t.add_row(str(r["n"]), r["test"], r["clip"], r["expected"], actual, v)
+    # -------------------------------------------------------------- blocks
+    def _block(self, r: dict):
+        """One trial as a few lines: title, specs, transcripts (wrapped, never cut), expected, actual, verdict."""
+        title = Text()
+        title.append(f"{r['n']:>3}/{self.total}  ", style="bold")
+        title.append(r["test"], style="bold cyan")
+        title.append(f"  ·  {r['clip']}", style="dim")
+        g = Table.grid(padding=(0, 2), expand=True)
+        g.add_column(width=12, style="dim", no_wrap=True)
+        g.add_column(ratio=1, overflow="fold")
+        if r.get("specs"):
+            g.add_row("clip", r["specs"])
+        for label, text in r.get("lines") or []:
+            g.add_row(label, Text(text, style="italic"))
+        g.add_row("expected", r["expected"])
+        g.add_row("actual", Text(str(r["actual"]), style="yellow" if r.get("live") else ""))
+        if r["verdict"]:
+            style = {True: "bold green", False: "bold red"}.get(r["ok"], "bold yellow")
+            g.add_row("verdict", Text(str(r["verdict"]), style=style))
+        return RGroup(Text(""), title, Padding(g, (0, 0, 0, 5)))
 
     def _print(self, renderable) -> None:
         if self._live is not None:
@@ -61,12 +60,10 @@ class LiveTable:
         else:
             console.print(renderable)
 
-    def add(self, index: int, test: str, clip: str, expected: str) -> dict:
-        if not self._printed_header:
-            self._printed_header = True
-            self._print(self._table(header=True))  # column titles once
-        row = {"n": index, "test": test, "clip": clip, "expected": expected, "actual": "▶ playing…",
-               "verdict": "", "ok": None, "live": True}
+    def add(self, index: int, test: str, clip: str, expected: str, details: Optional[tuple] = None) -> dict:
+        specs, lines = details if details else ("", [])
+        row = {"n": index, "test": test, "clip": clip, "expected": expected, "specs": specs, "lines": lines,
+               "actual": "▶ playing…", "verdict": "", "ok": None, "live": True}
         with self._lock:
             self.current = row
         self.refresh()
@@ -79,9 +76,7 @@ class LiveTable:
             if finished and self.current is row:
                 self.current = None
         if finished:
-            t = self._table(header=False)
-            self._add_row(t, row)
-            self._print(t)  # printed once, scrolls up with the rest
+            self._print(self._block(row))  # printed once, scrolls up with the rest
         self.refresh()
 
     def set_header(self, done: int, round_no: int, elapsed: float, remaining: Optional[float]) -> None:
@@ -102,9 +97,7 @@ class LiveTable:
         with self._lock:
             cur = dict(self.current) if self.current else None
         if cur:
-            t = self._table(header=False)
-            self._add_row(t, cur)
-            parts.append(t)
+            parts.append(self._block(cur))
         if self.status_line:
             parts.append(Text.from_markup(self.status_line))
         parts.append(Text.from_markup(self.footer))
