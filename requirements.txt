@@ -1,0 +1,8 @@
+# fdbench core (recording + timing metrics). Works on Windows and 64-bit Raspberry Pi OS (Pi 4 / Pi 5).
+numpy>=1.26
+scipy>=1.11
+soundfile>=0.12          # FLAC/WAV read-write (bundles libsndfile on Windows; Pi: sudo apt install libsndfile1)
+sounddevice>=0.4.6       # audio devices (Pi: sudo apt install libportaudio2)
+websockets>=12          # direct feed (local socket to the assistant)
+onnxruntime>=1.17        # Silero VAD on CPU (aarch64 wheels exist for Pi OS 64-bit)
+rich>=13.7               # live table and results in the terminal
