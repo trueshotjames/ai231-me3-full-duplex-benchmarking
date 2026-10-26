@@ -87,7 +87,9 @@ fills the judge metrics later.
 
 ## Datasets
 
-The authors' data is on Google Drive, so build once on a laptop: `pip install gdown && python tools/build_datasets.py`
-(about 2 GB download, ~15 min, result ~120 MB in `datasets/`). Copy `datasets/` to the Pi. If Drive refuses automated
+Download the ready-built set once on the laptop: `python tools/fetch_datasets.py` (~30 MB from this repo's GitHub
+Release, SHA-256 checked). To build the same set from the authors' Google Drive instead:
+`pip install gdown && python tools/build_datasets.py` (about 2 GB download, ~15 min). A Pi needs `datasets/` only for
+the virtual-cable mode. If Drive refuses automated
 downloads, download the folder by hand from the link in `tools/build_datasets.py`, unzip, and run
 `python tools/build_datasets.py --src PATH`.

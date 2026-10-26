@@ -376,7 +376,7 @@ def _start_run(args, student: str, rounds: int, judge, pf, seed=None, resume=Non
                     reset_cmd=getattr(args, "reset_cmd", None), realtime_gap=not args.sim)
     if not runner.plan.items:
         console.print("[red]No trials to run: the datasets folder has no test clips for the benchmark groups. "
-                      "Rebuild it with python tools/build_datasets.py (see docs/GUIDE.md step 3).[/red]")
+                      "Get it with python tools/fetch_datasets.py --force (see docs/GUIDE.md step 3).[/red]")
         rig.close()
         sys.exit(2)
     est = estimate_round_seconds(ds) * rounds
