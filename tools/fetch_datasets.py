@@ -20,8 +20,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "trueshotjames/ai231-me3-full-duplex-benchmarking"
-TAG = "datasets-v1"
-ASSET = "fdbench-datasets-v1.zip"
+TAG = "datasets-v2"
+ASSET = "fdbench-datasets-v2.zip"   # v2: same audio as v1, full transcripts in manifest.json
 URL = f"https://github.com/{REPO}/releases/download/{TAG}/{ASSET}"
 
 

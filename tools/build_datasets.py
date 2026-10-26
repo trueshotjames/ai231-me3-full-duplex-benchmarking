@@ -114,7 +114,7 @@ def main():
     if out.exists():
         shutil.rmtree(out)
     mb = ManifestBuilder(out, "Full-Duplex-Bench v1.0 + v1.5 release (Lin et al.), subset built by tools/build_datasets.py")
-    overlap_pool = {"side": [], "bg": [], "clean": []}
+    overlap_pool = {"side": [], "bg": [], "clean": []}   # (audio, transcript, source clip id)
 
     for fname, g in FOLDERS.items():
         if fname not in folders:
@@ -131,7 +131,7 @@ def main():
                     if words and isinstance(words[0], dict) and "item" in words[0]:
                         words = [w for sp in words for w in sp["item"]]
                     mb.add(g, TITLES[g], cid, {"main": a}, {"pause": pause, "source_id": d.name,
-                           "text": " ".join(w["text"] for w in words)[:200]}, licence=LIC[g])
+                           "text": " ".join(w["text"] for w in words)}, licence=LIC[g])
                 elif g == "v1_turntaking":
                     a = load_audio(d / "input.wav")
                     te = read_json(d / "turn_taking.json")[0]["timestamp"][0]
@@ -148,7 +148,7 @@ def main():
                     mb.add(g, TITLES[g], cid, {"context": trim_trailing_silence(ctx), "interrupt": inter},
                            {"context_text": meta["context"], "interrupt_text": meta["interrupt"], "source_id": d.name},
                            duration_role="context", licence=LIC[g])
-                    overlap_pool["clean"].append(inter)
+                    overlap_pool["clean"].append((inter, meta["interrupt"], cid))
                 else:  # v1.5
                     noisy = load_audio(d / "input.wav")
                     clean = load_audio(d / "clean_input.wav")
@@ -165,9 +165,9 @@ def main():
                             "overlap_text": label, "overlap_duration": round(len(ov) / SR, 2),
                             "overlap_window": [t0, t1], "source_id": d.name}, duration_role="turn", licence=LIC[g])
                     if g == "v15_talking_to_other":
-                        overlap_pool["side"].append(ov)
+                        overlap_pool["side"].append((ov, label, cid))
                     elif g == "v15_background":
-                        overlap_pool["bg"].append(ov)
+                        overlap_pool["bg"].append((ov, label, cid))
             except Exception as e:  # noqa: BLE001
                 print(f"  skip {d}: {e}")
 
@@ -176,14 +176,15 @@ def main():
     for kind, label, pool, lvl in (("side_talk", "side talk", overlap_pool["side"], -8),
                                    ("background", "background speech", overlap_pool["bg"], -15)):
         rng.shuffle(pool)
-        for i, a in enumerate(pool[:n_kind]):
+        for i, (a, text, src) in enumerate(pool[:n_kind]):
             mb.add("false_tt", "false turn-taking", f"false_{kind}_{i:03d}", {"main": a},
-                   {"kind": kind, "kind_label": label, "level_db": lvl}, licence="MIT (FDB v1.5 overlap windows)")
+                   {"kind": kind, "kind_label": label, "level_db": lvl, "text": text, "source": src},
+                   licence="MIT (FDB v1.5 overlap windows)")
     clean = overlap_pool["clean"]
     rng.shuffle(clean)
-    for i, a in enumerate(clean[:n_kind]):
+    for i, (a, text, src) in enumerate(clean[:n_kind]):
         mb.add("false_tt", "false turn-taking", f"false_tv_radio_{i:03d}", {"main": make_tv_radio(a, rng)},
-               {"kind": "tv_radio", "kind_label": "TV / radio", "level_db": -15}, licence="MIT (FDB synthetic, processed)")
+               {"kind": "tv_radio", "kind_label": "TV / radio", "level_db": -15, "text": text, "source": src}, licence="MIT (FDB synthetic, processed)")
     for i in range(n_kind):
         a, desc = make_noise(i, rng.uniform(3.0, 5.0), rng)
         mb.add("false_tt", "false turn-taking", f"false_noise_{i:03d}", {"main": a},
