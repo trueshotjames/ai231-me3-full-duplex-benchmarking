@@ -66,6 +66,9 @@ class TrialPlan:
     script: Optional[TrialScript] = None
     expected: str = ""
 
+    def details(self) -> tuple:
+        return self.clip.details(self.variant)
+
     def describe_clip(self) -> str:
         d = self.clip.describe()
         if self.variant == "clean":

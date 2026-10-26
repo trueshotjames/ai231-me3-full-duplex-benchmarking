@@ -43,6 +43,36 @@ class Clip:
         return f"{self.id} · {self.duration:.1f} s"
 
 
+    def details(self, variant: str = "main") -> tuple:
+        """(specs, [(label, transcript), ...]) for the multi-line live display. Transcripts are given in full."""
+        m, g = self.meta, self.group
+        q = lambda s: f"\"{s.strip()}\"" if (s or "").strip() else "(no transcript in the dataset)"  # noqa: E731
+        if g in ("v1_pause_synth", "v1_pause_candor"):
+            p = m.get("pause", [0.0, 0.0])
+            return (f"{self.duration:.1f} s clip · pause {p[1]-p[0]:.1f} s at {p[0]:.1f} s",
+                    [("user", q(m.get("text")))])
+        if g == "v1_turntaking":
+            return (f"{self.duration:.1f} s clip · user's turn ends at {m.get('turn_end', 0):.1f} s",
+                    [("user", q(m.get("text") or m.get("last_words")))])
+        if g == "v1_interrupt":
+            return (f"{self.duration:.1f} s question · cut-in played while she answers",
+                    [("user", q(m.get("context_text"))), ("cut-in", q(m.get("interrupt_text")))])
+        if g == "false_tt":
+            lines = [("sound", f"{m.get('kind_label', m.get('kind'))}, not addressed to her")]
+            if m.get("text"):
+                lines.append(("words", q(m["text"])))
+            return (f"{self.duration:.1f} s · {m.get('kind_label', m.get('kind'))} · {m.get('level_db', 0):+.0f} dB", lines)
+        if g.startswith("v15_"):
+            if variant == "clean":
+                return (f"{self.duration:.1f} s turn · clean twin, no overlap (reference for the judge)",
+                        [("user", q(m.get("context_text")))])
+            label = {"v15_interruption": "cut-in", "v15_backchannel": "backchannel",
+                     "v15_talking_to_other": "side talk", "v15_background": "background"}.get(g, "overlap")
+            return (f"{self.duration:.1f} s turn · {label} {m.get('overlap_duration', 0):.1f} s, played while she answers",
+                    [("user", q(m.get("context_text"))), (label, q(m.get("overlap_text")))])
+        return (f"{self.duration:.1f} s", [])
+
+
 def _short(s, n):
     s = (s or "").strip()
     return s if len(s) <= n else s[: n - 1] + "…"
