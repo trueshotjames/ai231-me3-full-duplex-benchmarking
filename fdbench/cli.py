@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
+from rich.markup import escape
 
 from . import __version__
 from .settings import load_dotenv
@@ -144,7 +145,7 @@ def _find_project(args) -> Optional[Path]:
     """The assistant's project folder: --project, FDBENCH_PROJECT (.env), or the folder that holds fd-benchmark."""
     import os
     for cand in (getattr(args, "project", None), os.environ.get("FDBENCH_PROJECT"), ROOT.parent):
-        if cand and (Path(cand) / "assistant" / "main.py").exists():
+        if cand and Path(cand).is_dir():
             return Path(cand).resolve()
     return None
 
@@ -200,7 +201,7 @@ def _direct_rig(args, run_dir: Optional[Path] = None):
         for ip in ips or ["<this laptop's IP>"]:
             console.print(f"  PROJECT/.venv/bin/python PROJECT/fd-benchmark/launch_assistant.py --url ws://{ip}:{port}")
         console.print("[dim]Already running there with this address (tmux / service)? It reconnects by itself.[/dim]")
-        console.print("[dim]If it cannot connect, allow TCP port %d in this laptop's firewall (docs/GUIDE.md step 4). "
+        console.print("[dim]If it cannot connect, allow TCP port %d in this laptop's firewall (docs/GUIDE.md step 8). "
                       "Waiting up to 5 min… (Ctrl+C to cancel)[/dim]" % port)
     else:
         project = _find_project(args)
@@ -229,8 +230,19 @@ def _direct_rig(args, run_dir: Optional[Path] = None):
             console.print(f"\n[bold]Start her in benchmark mode in another terminal[/bold] (her venv's python):\n"
                           f"  python fd-benchmark/launch_assistant.py --url ws://127.0.0.1:{port}\n"
                           f"[dim]waiting up to 5 min… (Ctrl+C to cancel)[/dim]")
-    if not rig.wait_for_assistant():
-        if launched is not None:
+    import time
+    deadline = time.monotonic() + rig.connect_timeout
+    while not rig.wait_for_assistant(1.0):
+        if launched is not None and launched.poll() is not None:
+            console.print(f"[red]Her launcher exited (code {launched.returncode}) before connecting.[/red]")
+            if run_dir and (run_dir / "assistant.log").exists():
+                tail = (run_dir / "assistant.log").read_text(encoding="utf-8", errors="replace").splitlines()[-12:]
+                console.print("[dim]" + "\n".join(escape(t) for t in tail) + "[/dim]")
+            break
+        if time.monotonic() > deadline:
+            break
+    if not rig.connected.is_set():
+        if launched is not None and launched.poll() is None:
             launched.terminate()
         console.print("[red]She did not connect. See docs/TROUBLESHOOTING.md (direct feed)"
                       + (f"; her output is in {run_dir / 'assistant.log'}" if (launched is not None and run_dir) else "") + ".[/red]")
@@ -241,7 +253,6 @@ def _direct_rig(args, run_dir: Optional[Path] = None):
     if rtt is not None and rtt > 50:
         console.print("[yellow]slow link: use Ethernet or the same Wi-Fi; the delay adds to her latencies[/yellow]")
     console.print("giving her 5 s to settle")
-    import time
     time.sleep(5)
     rig.launched = launched
     return rig
@@ -365,7 +376,7 @@ def _start_run(args, student: str, rounds: int, judge, pf, seed=None, resume=Non
                     reset_cmd=getattr(args, "reset_cmd", None), realtime_gap=not args.sim)
     if not runner.plan.items:
         console.print("[red]No trials to run: the datasets folder has no test clips for the benchmark groups. "
-                      "Rebuild it with python tools/build_datasets.py (see docs/GUIDE.md step 2).[/red]")
+                      "Rebuild it with python tools/build_datasets.py (see docs/GUIDE.md step 3).[/red]")
         rig.close()
         sys.exit(2)
     est = estimate_round_seconds(ds) * rounds

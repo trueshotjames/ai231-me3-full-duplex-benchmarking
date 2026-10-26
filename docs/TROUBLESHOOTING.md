@@ -2,13 +2,14 @@
 
 **Direct feed: she did not connect (laptop).** fdbench starts her with `ME3\.venv` and writes her output to the run
 folder's `assistant.log`; read it. Usual causes: her `.env` keys missing (`python -m assistant.main --check`), her venv
-without Pipecat, or fdbench could not find the project (pass `--project PATH`). You can also start her yourself:
-`.venv\Scripts\python fd-benchmark\launch_assistant.py` in a second terminal.
+without Pipecat, or fdbench could not find the project (pass `--project PATH`). Run `PROJECT_PYTHON launch_assistant.py --check`
+(docs/GUIDE.md step 4) until it prints READY. You can also start her yourself in a second terminal:
+`PROJECT_PYTHON launch_assistant.py`.
 
 **Direct feed: she did not connect (Pi).** On the Pi the launcher prints "waiting for fdbench at ws://…": fdbench is
 not running yet, the laptop IP is wrong, or Windows Firewall blocks port 8791 (`scripts\open_firewall_windows.ps1`).
 Try the link test first: `launch_assistant.py --echo --url ws://LAPTOP-IP:8791`. Networks with client isolation
-(campus Wi-Fi) block laptop↔Pi traffic; use an SSH tunnel (docs/GUIDE.md, step 7 option E) or Ethernet.
+(campus Wi-Fi) block laptop↔Pi traffic; use an SSH tunnel (docs/GUIDE.md, step 12 option E) or Ethernet.
 
 **Direct feed: she connected but never says anything.** Check `assistant.log` (or her terminal) for ASR/TTS/LLM
 errors or missing keys. The run pauses after 5 silent trials so you can look.

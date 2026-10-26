@@ -7,10 +7,4 @@ runs/
 downloads/
 datasets-dev/
 *.tmp
-
-# built from the authors' release by tools/build_datasets.py (Candor-derived clips are CC BY-NC; not redistributed here)
-datasets/*
-!datasets/README.md
-!datasets/DATA_LICENSES.md
-runs/*
-!runs/.gitkeep
+assistant_entry.py

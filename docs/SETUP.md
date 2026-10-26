@@ -25,14 +25,14 @@ fdbench "plays" her audio in real time, like a speaker would, so her timing is m
 
 **The course assistant and other Pipecat assistants:** `launch_assistant.py` in this folder builds the assistant with
 `make_benchmark_transport(url)` from `adapters/pipecat_fdbench.py` through its `build(transport=...)` hook and runs it.
-Nothing in the project is modified. For another Pipecat assistant, edit `build_assistant()` in the launcher:
+Nothing in the project is modified. For another Pipecat assistant, copy `adapters/assistant_entry_template.py` to
+`fd-benchmark/assistant_entry.py` and fill in `build(transport, log_dir)` (docs/GUIDE.md step 4B); in short:
 
 ```python
-transport = make_benchmark_transport(url, in_sr=16000, out_sr=16000)
-worker = await app.build(transport=transport)      # wherever your pipeline is assembled
+worker = make_my_pipeline_worker(transport)   # where your code would use LocalAudioTransport
 ```
 
-Everything after the transport (VAD, turn-taking, STT, LLM, TTS, interruptions) runs exactly as in normal use.
+`PROJECT_PYTHON launch_assistant.py --check` must print READY. Everything after the transport (VAD, turn-taking, STT, LLM, TTS, interruptions) runs exactly as in normal use.
 On a laptop fdbench starts the launcher itself (`--where local`); on a Pi you run it there against the laptop's
 address (`--where remote`, see docs/GUIDE.md). The launcher reconnects for every run until stopped.
 

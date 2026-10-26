@@ -19,7 +19,8 @@ Run it with the PROJECT's Python (its venv has Pipecat), from anywhere:
     Windows:  "ME3\\.venv\\Scripts\\python" "ME3\\fd-benchmark\\launch_assistant.py"
     Pi:       ~/ME3/.venv/bin/python ~/ME3/fd-benchmark/launch_assistant.py --url ws://LAPTOP:8791
 
-Adapting to another assistant: change `build_assistant()` below (about ten lines).
+Which assistant it starts: fd-benchmark/assistant_entry.py if you made one (from adapters/assistant_entry_template.py),
+otherwise the course layout in adapters/entry_course.py. `--check` shows what it found.
 """
 from __future__ import annotations
 
@@ -52,41 +53,29 @@ _load_env(HERE / ".env")
 DEFAULT_URL = os.environ.get("FDBENCH_URL") or "ws://127.0.0.1:8791"
 
 
-def find_project(explicit: str | None) -> Path:
+def load_entry():
+    """The assistant entry: $FDBENCH_ENTRY, else fd-benchmark/assistant_entry.py (yours), else the course layout."""
+    import importlib.util
+    for cand in (os.environ.get("FDBENCH_ENTRY"), HERE / "assistant_entry.py", HERE / "adapters" / "entry_course.py"):
+        if cand and Path(cand).exists():
+            spec = importlib.util.spec_from_file_location("fdbench_assistant_entry", str(cand))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            for name in ("build", "audio_rates"):
+                if not hasattr(mod, name):
+                    sys.exit(f"{cand} has no {name}(); see adapters/assistant_entry_template.py")
+            mod.__file__ = str(cand)
+            return mod
+    sys.exit("no assistant entry found (adapters/entry_course.py is missing: re-clone fd-benchmark)")
+
+
+def find_project(explicit: str | None, marker: str) -> Path:
     """The assistant's project folder: --project, FDBENCH_PROJECT, or the folder that contains fd-benchmark."""
     for cand in (explicit, os.environ.get("FDBENCH_PROJECT"), HERE.parent):
-        if cand and (Path(cand) / "assistant" / "main.py").exists():
+        if cand and (Path(cand) / marker).exists():
             return Path(cand).resolve()
-    sys.exit("assistant/main.py not found. Pass --project PATH (the folder that holds assistant/).")
-
-
-# ----------------------------------------------------------------------------- the project-specific part
-async def build_assistant(project: Path, transport, log_dir: Path):
-    """Build the course assistant with the benchmark transport. Returns (app, run_coroutine, cancel_coroutine).
-
-    For another Pipecat assistant: import your app, pass `transport` where it builds its pipeline, and return
-    something that runs it and something that cancels it.
-    """
-    from assistant.config import load
-    from assistant.main import Assistant, setup_logging
-
-    cfg = load()
-    setup_logging(cfg.log_level)
-    problems = cfg.validate()
-    for p in problems:
-        print(f"config problem: {p}", file=sys.stderr)
-    if problems:
-        sys.exit("fix the assistant's .env and try again")
-    log_dir.mkdir(parents=True, exist_ok=True)
-    cfg.turns_log = log_dir / "turns.jsonl"          # keep benchmark conversations out of her normal logs
-    cfg.latency_log = log_dir / "latency.jsonl"
-    app = Assistant(cfg)
-    worker = await app.build(transport=transport)
-
-    async def cancel():
-        await worker.cancel()
-
-    return app, app.run(), cancel
+    sys.exit(f"project not found: no {marker} in --project, FDBENCH_PROJECT or {HERE.parent}. "
+             "Clone fd-benchmark inside your project folder, or set FDBENCH_PROJECT in fd-benchmark/.env.")
 
 
 # ----------------------------------------------------------------------------- link test (no assistant)
@@ -139,18 +128,19 @@ def wait_for_server(url: str, stop_after: float | None) -> bool:
         time.sleep(1.0)
 
 
-async def run_once(url: str, project: Path | None, log_dir: Path, echo: bool) -> None:
+async def run_once(url: str, entry, log_dir: Path, echo: bool) -> None:
     from pipecat_fdbench import make_benchmark_transport
 
     out_sr = 16000
     if not echo:
-        from assistant.config import load
-        cfg = load()
-        out_sr = cfg.audio_out_sample_rate
-        if cfg.audio_in_sample_rate != 16000:
-            sys.exit("set AUDIO_IN_SAMPLE_RATE=16000 in the assistant's .env for benchmark mode")
+        in_sr, out_sr = entry.audio_rates()
+        if in_sr != 16000:
+            sys.exit("the assistant's input sample rate must be 16000 in benchmark mode (course: AUDIO_IN_SAMPLE_RATE=16000)")
     transport = make_benchmark_transport(url, in_sr=16000, out_sr=out_sr)
-    app, run_coro, cancel = (await build_echo(transport)) if echo else (await build_assistant(project, transport, log_dir))
+    if echo:
+        _, run_coro, cancel = await build_echo(transport)
+    else:
+        run_coro, cancel = await entry.build(transport, log_dir)
     loop = asyncio.get_running_loop()
     done = loop.create_future()
 
@@ -168,6 +158,36 @@ async def run_once(url: str, project: Path | None, log_dir: Path, echo: bool) ->
     await run_coro
 
 
+def check(entry, project, url) -> int:
+    """Print what the launcher would use, and whether it is usable. Exit code 0 = ready."""
+    ok = True
+    print(f"python:   {sys.executable} ({sys.version.split()[0]})")
+    try:
+        import pipecat
+        import websockets
+        from pipecat_fdbench import make_benchmark_transport
+        print(f"pipecat:  {getattr(pipecat, '__version__', '?')} · websockets {websockets.__version__}")
+    except Exception as e:  # noqa: BLE001
+        ok = False
+        print(f"pipecat:  NOT USABLE ({e}). Run the launcher with the assistant's own venv python; "
+              "it needs pipecat-ai[websocket].")
+    if entry is not None:
+        print(f"entry:    {entry.__file__}")
+        print(f"project:  {project}")
+        try:
+            in_sr, out_sr = entry.audio_rates()
+            print(f"audio:    in {in_sr} Hz, out {out_sr} Hz")
+            if in_sr != 16000:
+                ok = False
+                print("          input must be 16000 Hz in benchmark mode")
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            print(f"audio:    audio_rates() failed: {e}")
+    print(f"fdbench:  {url}")
+    print("READY" if ok else "NOT READY: fix the lines above (docs/GUIDE.md, step 4)")
+    return 0 if ok else 1
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="run the assistant in benchmark mode (fd-benchmark)")
     ap.add_argument("--url", default=DEFAULT_URL, help=f"fdbench address (default {DEFAULT_URL}, or $FDBENCH_URL)")
@@ -176,13 +196,17 @@ def main() -> None:
     ap.add_argument("--once", action="store_true", help="exit after one run instead of waiting for the next")
     ap.add_argument("--echo", action="store_true", help="link test: echo audio back, do not start the assistant")
     ap.add_argument("--wait", type=float, default=None, help="give up if fdbench is not reachable after this many seconds")
+    ap.add_argument("--check", action="store_true", help="check the setup (entry, project, Pipecat, audio rates) and exit")
     args = ap.parse_args()
 
-    project = None
+    entry = project = None
     if not args.echo:
-        project = find_project(args.project)
+        entry = load_entry()
+        project = find_project(args.project, getattr(entry, "PROJECT_MARKER", "."))
         os.chdir(project)
         sys.path.insert(0, str(project))
+    if args.check:
+        sys.exit(check(entry, project, args.url))
     log_dir = Path(args.log_dir) if args.log_dir else HERE / "runs" / "_assistant"
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -194,7 +218,7 @@ def main() -> None:
                 sys.exit(f"fdbench not reachable at {args.url}")
             runs += 1
             print(f"--- run {runs}: starting " + ("echo" if args.echo else "the assistant"))
-            asyncio.run(run_once(args.url, project, log_dir, args.echo))
+            asyncio.run(run_once(args.url, entry, log_dir, args.echo))
             if args.once:
                 return
             print("--- waiting for the next run (Ctrl+C to quit)")
