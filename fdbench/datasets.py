@@ -52,8 +52,9 @@ class Clip:
             return (f"{self.duration:.1f} s clip · pause {p[1]-p[0]:.1f} s at {p[0]:.1f} s",
                     [("user", q(m.get("text")))])
         if g == "v1_turntaking":
+            text = m.get("text") or m.get("last_words")
             return (f"{self.duration:.1f} s clip · user's turn ends at {m.get('turn_end', 0):.1f} s",
-                    [("user", q(m.get("text") or m.get("last_words")))])
+                    [("user", q(text) if text else "(Candor turn-taking clips come without a transcript)")])
         if g == "v1_interrupt":
             return (f"{self.duration:.1f} s question · cut-in played while she answers",
                     [("user", q(m.get("context_text"))), ("cut-in", q(m.get("interrupt_text")))])
