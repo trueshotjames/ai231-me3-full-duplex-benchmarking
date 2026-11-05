@@ -64,6 +64,41 @@ Trials are drawn without replacement per group from a seeded shuffle and arrange
 of every group (two false turn-taking clips, rotating the four kinds). Stopping after any trial leaves every group
 represented; the per-group counts are in `results.json`. The seed is in `session.json` and `queue.json` and a stopped run resumes with `run --resume RUN_DIR`.
 
+## Machine resources (ours)
+
+Not in the papers. It answers whether a slow or missed turn came from her machine (a Raspberry Pi 4 here) or from the
+cloud APIs.
+
+**What.** Once a second: CPU per core and in total (`/proc/stat`); CPU and resident memory of her processes, labelled
+assistant (the launcher process: Pipecat, Silero VAD), ASR, TTS and tools MCP servers (her child processes, matched by
+command line; `--stats-procs` for servers started separately); free RAM and swap (`/proc/meminfo`); SoC temperature
+(`thermal_zone0`). Every 2 s, because each call starts a subprocess: the actual ARM clock (`vcgencmd measure_clock arm`;
+the cpufreq file shows the requested clock, not the firmware-capped one) and all 8 flags of `vcgencmd get_throttled`
+(under-voltage, frequency capped, throttled, soft temperature limit; now and since boot). CPU is percent of the whole
+machine, so per-process figures add up to her share.
+
+**How.** `launch_assistant.py` runs the sampler (`fdbench/probe.py`, standard library only) and sends each sample as a
+text frame on the benchmark socket. fdbench stores it with its own receive time. The clock offset between the two
+machines is the smallest receive − sample time seen in the run (the fastest network crossing), so network jitter does
+not shift samples. The runner records each trial's start and end on the same clock (`mono` in `timing.json`) and keeps
+the trial's samples in `trials/<id>/pi_stats.jsonl`; the whole run is in `pi_stats.jsonl`. At 1 sample per second the
+stats describe a trial as a whole, not a single turn.
+
+**Reported** (`resources` in `results.json`, "Machine resources" in `results.html`): peak temperature, share of
+samples with any "now" throttle flag, under-voltage, CPU median and p95, p95 of the busiest core (near 100 % means one
+thread, often Python's, is the bottleneck), lowest free RAM and ARM clock; a timeline; the same per test group and per
+process; latency against mean CPU per trial with Pearson r (n ≥ 5) and the median latency of throttled vs other trials;
+the trials that ran while throttled. Since-boot flags count only when they turn on during the run.
+
+**Overhead.** Tracked processes are read every sample; the full `/proc` scan for new child processes runs every 5 s.
+The sampler measures its own CPU time (plus the wall time of the `vcgencmd` calls, an upper bound) and the report
+prints it as a share of one core. About 400 bytes per second go over the link.
+
+**Other machines.** Every stat is optional. Linux without `vcgencmd`: no clock or throttle flags. Windows and macOS:
+CPU and RAM through psutil when installed, otherwise nothing; the report says what was not available. `--no-stats` on
+the launcher turns it off; an older launcher simply sends none. For `--sim` and virtual-cable runs, `--host-stats`
+samples the machine fdbench runs on, without process labels.
+
 ## Deviations from the papers
 
 | Topic | Papers | Here | Effect |

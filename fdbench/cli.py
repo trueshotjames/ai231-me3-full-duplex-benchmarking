@@ -29,6 +29,9 @@ def _add_common(p):
                    help="direct feed: local = fdbench starts her on this machine; remote = she runs on another machine (Pi)")
     p.add_argument("--project", default=None, help="the assistant's project folder (default: the folder that holds fd-benchmark)")
     p.add_argument("--assistant-cmd", default=None, help="custom command fdbench runs to start her (local direct feed)")
+    p.add_argument("--host-stats", action="store_true",
+                   help="sample this machine's CPU/RAM/temperature during the run (for --sim and cables; with the "
+                        "direct feed the launcher sends her machine's stats by itself)")
 
 
 def _add_judge(p):
@@ -371,6 +374,11 @@ def _start_run(args, student: str, rounds: int, judge, pf, seed=None, resume=Non
     rig = (_sim_rig(args.sim_profile) if mode == "sim" else _direct_rig(args, run_dir) if mode == "direct"
            else _audio_rig(args, pf))
     session["where"] = getattr(args, "where", None) or "local"
+    host_sampler = None
+    if mode != "direct" and getattr(args, "host_stats", False):
+        from .stats import HostSampler, StatsStore
+        rig.stats = StatsStore(source="host")
+        host_sampler = HostSampler(rig.stats).start()
     runner = Runner(run_dir, ds, rig, session, rounds, seed or session.get("seed", 0),
                     live=not getattr(args, "no_live", False), gap=(0.0 if args.sim else getattr(args, "gap", 6.0)),
                     reset_cmd=getattr(args, "reset_cmd", None), realtime_gap=not args.sim)
@@ -385,6 +393,8 @@ def _start_run(args, student: str, rounds: int, judge, pf, seed=None, resume=Non
     try:
         outcome = runner.run()
     finally:
+        if host_sampler is not None:
+            host_sampler.stop()
         rig.close()
         if getattr(rig, "launched", None) is not None:
             try:
@@ -393,6 +403,9 @@ def _start_run(args, student: str, rounds: int, judge, pf, seed=None, resume=Non
                 rig.launched.kill()
     if hasattr(rig, "link_info"):
         session["link"] = rig.link_info()
+    stats = getattr(rig, "stats", None)
+    if stats is not None:
+        session["machine_stats"] = {"hello": stats.hello, "samples": len(stats.samples), "clock_offset": stats.offset}
     session["finished"] = now_iso()
     session["outcome"] = outcome
     write_json(run_dir / "session.json", session)

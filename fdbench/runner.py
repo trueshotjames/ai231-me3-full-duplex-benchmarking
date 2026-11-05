@@ -55,6 +55,8 @@ class Runner:
             write_json(plan_file, self.plan.to_json())
         self.clips = {g: {c.id: c for c in ds.clips(g)} for g in ds.groups}
         self.trial_times: list = []
+        self.stats = getattr(rig, "stats", None)  # StatsStore: machine stats streamed during the run (stats.py)
+        self._stats_checked = False
 
     # ------------------------------------------------------------------
     def _save_plan(self):
@@ -145,6 +147,7 @@ class Runner:
             table.set_header(n_done, items[-1].round if items else self.plan.rounds, sw.elapsed(), 0.0)
         keys.stop()
         self._save_plan()
+        self._flush_stats()
         completed = sum(1 for i in self.plan.items if i.status == "done")
         self.log.log(f"run end · {completed}/{total} trials done · stopped_early={stopped_early} · {sw.elapsed():.0f} s")
         self.log.event("run_end", completed=completed, total=total, stopped_early=stopped_early, seconds=sw.elapsed())
@@ -160,7 +163,8 @@ class Runner:
             except Exception as e:  # noqa: BLE001
                 self.log.log(f"reset command failed: {e}")
         if self.realtime_gap and self.gap > 0:
-            table.set_status(f"[dim]waiting {self.gap:.0f} s for her to settle…[/dim]")
+            st = self.stats.status_line() if self.stats is not None else ""
+            table.set_status(f"[dim]waiting {self.gap:.0f} s for her to settle…[/dim]" + (f"  {st}" if st else ""))
             time.sleep(self.gap)
         table.set_status("")
 
@@ -178,6 +182,7 @@ class Runner:
             elif kind == "bot_end":
                 table.update(row, actual=f"▶ she stopped at {t:.2f} s")
 
+        m0 = time.monotonic()
         try:
             script = make_script(plan, on_event=on_event)
             rec = self.rig.run(script)
@@ -187,6 +192,7 @@ class Runner:
             write_json(tdir / "timing.json", {"error": str(e), "trial": plan.trial_id})
             return {"error": str(e)}
 
+        m1 = time.monotonic()
         save_audio(tdir / "played.flac", rec.played)
         save_audio(tdir / "her.flac", rec.heard)
         facts = provisional(plan, rec)
@@ -195,8 +201,9 @@ class Runner:
             "expected": plan.expected, "duration": rec.duration,
             "events": [{"name": e.name, "t": e.t, "len": len(e.audio) / SR} for e in rec.events],
             "live_bot_starts": rec.bot_starts, "live_bot_ends": rec.bot_ends, "rig": rec.notes,
-            "clip_meta": plan.clip.meta, **facts,
+            "clip_meta": plan.clip.meta, "mono": [m0, m1], **facts,
         }
+        self._trial_stats(tdir, m0, m1)
         write_json(tdir / "timing.json", timing)
         table.update(row, actual=facts.get("actual", ""), verdict=facts.get("verdict", ""), ok=facts.get("ok"),
                      live=False)
@@ -204,3 +211,27 @@ class Runner:
         self.log.event("trial_end", trial=plan.trial_id, actual=facts.get("actual"), verdict=facts.get("verdict"),
                        ok=facts.get("ok"))
         return timing
+
+    # ------------------------------------------------------------------ machine stats
+    def _trial_stats(self, tdir: Path, m0: float, m1: float) -> None:
+        """Save the stats samples of this trial and append new ones to the run's pi_stats.jsonl."""
+        if self.stats is None:
+            return
+        try:
+            for smp in self.stats.window(m0, m1):
+                append_jsonl(tdir / "pi_stats.jsonl", smp)
+            self._flush_stats()
+            if not self._stats_checked and self.stats.samples:
+                self._stats_checked = True
+                for w in self.stats.start_warnings():
+                    self.log.log(f"machine stats: {w}")
+                    self.log.event("stats_warning", text=w)
+        except Exception as e:  # noqa: BLE001  (stats never break a run)
+            self.log.log(f"machine stats: {e}")
+
+    def _flush_stats(self) -> None:
+        if self.stats is not None:
+            try:
+                self.stats.flush(self.run_dir)
+            except Exception as e:  # noqa: BLE001
+                self.log.log(f"machine stats flush: {e}")

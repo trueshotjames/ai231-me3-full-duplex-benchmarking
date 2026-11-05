@@ -230,6 +230,13 @@ class Scorer:
             res[f"voice.{f}"] = metrics.paired_t([fin(t, "voice_delta", {}).get(f) for t in pool])
             res[f"voice.{f}"]["expected"] = VOICE_EXPECT[f]
 
+        try:
+            from .resources import aggregate as resources_aggregate
+            res_block = resources_aggregate(self.run_dir, trials)
+        except Exception as e:  # noqa: BLE001  (resources never break scoring)
+            res_block = None
+            self.notes.append(f"machine stats could not be summarized: {type(e).__name__}: {e}")
+
         summary = {
             "fdbench": __version__, "scored_at": now_iso(), "trials": len(trials),
             "per_group": {g: len(v) for g, v in by.items()},
@@ -237,5 +244,6 @@ class Scorer:
             "judge": (self.judge.describe() if self.judge else None),
             "asr": (f"faster-whisper/{self.asr_model}" if self.use_asr else None),
             "metrics": res,
+            "resources": res_block,
         }
         return summary

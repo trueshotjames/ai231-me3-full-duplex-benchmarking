@@ -223,6 +223,11 @@ FDB -m fdbench run --student 2025xxxxx --rounds 1 --connect direct --where remot
 `runs/<student>/<date-time>/` as in step 6, with `session.json` recording `"where": "remote"`. After the run, the
 Pi prints that it is waiting for the next run; the next laptop run connects straight away.
 
+While connected, the launcher also sends the Pi's CPU (per core and per process), RAM, temperature, ARM clock and
+throttle flags once a second. The live table shows them between trials (`Pi 62 °C · CPU 48% · 1500 MHz`) and
+`results.html` gets a "Machine resources" section (docs/METHOD.md). `--no-stats` on the launcher turns this off;
+`python -m fdbench.probe` on the Pi shows what it can read.
+
 Compare the laptop and Pi runs with `FDB -m fdbench compare runs/<student>/<laptop-run> runs/<student>/<pi-run>`.
 Her own turn/latency logs from a Pi run stay on the Pi in `~/ME3/fd-benchmark/runs/_assistant/` (except option D).
 

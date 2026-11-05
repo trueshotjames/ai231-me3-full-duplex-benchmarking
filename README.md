@@ -49,6 +49,7 @@ Try it without any audio device: `python tools/make_dev_dataset.py` then
 | v1.5 | Respond / Resume / Uncertain / Unknown for interruption, backchannel, talking to others, background speech | scenario-dependent |
 | v1.5 | Stop latency t_stop, response latency t_resp | lower |
 | v1.5 | Voice change after an interruption: Δ WPM, Δ pitch mean/SD, Δ intensity mean/SD, Δ UTMOSv2, paired t-test | see METHOD |
+| ours | **Machine resources** during the run: CPU per core and per process (assistant, ASR/TTS/tools MCP), RAM, temperature, ARM clock, Raspberry Pi throttle flags, lined up with each trial | context for the latencies |
 
 Every formula, the paper source and each deviation from the papers is in [docs/METHOD.md](docs/METHOD.md).
 
