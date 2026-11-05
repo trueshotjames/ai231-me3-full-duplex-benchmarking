@@ -87,6 +87,29 @@ def print_results(summary: dict, session: dict) -> None:
             sig = " [green]significant[/green]" if v["significant"] else ""
             val = f"Δ {v['mean_delta']:+.2f}  ({p}, n={v['n']}){sig}"
         row(f"Δ {f}", val, v["expected"])
+    r = summary.get("resources") or {}
+    run = r.get("run") if r.get("available") else None
+    if run:
+        hello = r.get("hello") or {}
+        sec(f"Machine resources · {hello.get('pi_model') or hello.get('os') or '?'}")
+        if run.get("temp_max") is not None:
+            row("Peak temperature", f"{run['temp_max']:.1f} °C", "lower")
+        if run.get("throttled_share") is not None:
+            sh = run["throttled_share"]
+            n_thr = sum(1 for p in r.get("per_trial", []) if p.get("throttled"))
+            row("Time throttled or capped", (f"[red]{sh*100:.1f}%[/red]" if sh else "0%") + f"  ({n_thr} trials)", "lower")
+        if run.get("cpu_median") is not None:
+            row("CPU, all cores", f"median {run['cpu_median']:.0f}% · p95 {run['cpu_p95']:.0f}% · busiest core p95 "
+                f"{run['busiest_core_p95']:.0f}%" if run.get("busiest_core_p95") is not None else
+                f"median {run['cpu_median']:.0f}% · p95 {run['cpu_p95']:.0f}%", "lower")
+        for lab, p in (run.get("procs") or {}).items():
+            row(f"   · {p['label']}", f"CPU mean {p['cpu_mean'] or 0:.1f}% · RAM peak {p['rss_peak_mb'] or 0:.0f} MB", "")
+        if run.get("mem_avail_min_mb") is not None:
+            row("Lowest free RAM", f"{run['mem_avail_min_mb']:.0f} MB", "higher")
+        if run.get("mhz_min") is not None:
+            row("Lowest ARM clock", f"{run['mhz_min']:.0f} MHz", "higher")
+        for w in (r.get("start_warnings") or []) + [f"{k} during the run" for k in r.get("new_flags_during_run") or []]:
+            row("   [yellow]![/yellow]", w, "")
     console.print(t)
     if summary.get("notes"):
         for n in summary["notes"]:

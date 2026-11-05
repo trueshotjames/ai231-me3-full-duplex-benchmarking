@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .probe import decode_throttled
+
 
 def _read(path: str) -> str | None:
     try:
@@ -66,7 +68,7 @@ def pi_temperature_c() -> float | None:
 
 
 def pi_throttled() -> dict | None:
-    """Decode `vcgencmd get_throttled` (Pi only)."""
+    """Decode `vcgencmd get_throttled` (Pi only): all 8 documented flags, see probe.THROTTLE_BITS."""
     if not shutil.which("vcgencmd"):
         return None
     try:
@@ -74,14 +76,7 @@ def pi_throttled() -> dict | None:
         val = int(out.strip().split("=")[1], 16)
     except Exception:  # noqa: BLE001
         return None
-    return {
-        "raw": hex(val),
-        "under_voltage_now": bool(val & 0x1),
-        "freq_capped_now": bool(val & 0x2),
-        "throttled_now": bool(val & 0x4),
-        "under_voltage_ever": bool(val & 0x10000),
-        "throttled_ever": bool(val & 0x40000),
-    }
+    return decode_throttled(val)
 
 
 def network_type() -> str:

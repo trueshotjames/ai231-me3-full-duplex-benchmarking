@@ -76,10 +76,14 @@ def run_preflight(dataset_dir: Path, sim: bool = False, judge=None, mode: str = 
     if info["pi_temp_c"] is not None:
         t = info["pi_temp_c"]
         thr = info["pi_throttled"] or {}
-        hot = t >= 75 or thr.get("throttled_now")
+        hot = t >= 75 or thr.get("throttled_now") or thr.get("soft_temp_limit_now")
         pf.checks.append(Check(not hot, f"CPU {t:.0f} °C" + (" · throttling now" if thr.get("throttled_now") else
-                               (" · was throttled earlier" if thr.get("throttled_ever") else "")),
+                               (" · soft temperature limit now" if thr.get("soft_temp_limit_now") else
+                                (" · was throttled earlier" if thr.get("throttled_ever") else ""))),
                                "add a fan or heatsink; throttling slows the assistant and skews latencies"))
+        if thr.get("under_voltage_now") or thr.get("under_voltage_ever"):
+            pf.checks.append(Check(False, "under-voltage " + ("now" if thr.get("under_voltage_now") else "since boot"),
+                                   "use the official 5.1 V / 3 A power supply; under-voltage throttles the CPU"))
     net = info["network"]
     pf.checks.append(Check(net != "offline" and "wifi" not in net, f"network: {net}",
                            "use Ethernet if you can; Wi-Fi jitter widens latencies"))
@@ -127,6 +131,8 @@ def run_preflight(dataset_dir: Path, sim: bool = False, judge=None, mode: str = 
                                        "create the project's venv, or set FDBENCH_ASSISTANT_PYTHON in fd-benchmark/.env"))
         else:
             pf.checks.append(Check(True, "assistant runs on another machine (Pi); fdbench will listen on all interfaces"))
+            pf.checks.append(Check(True, "Pi CPU, memory, temperature and throttling: sent by the launcher during the run "
+                                   "(checked when she connects; see the run log)"))
         import socket
         with socket.socket() as s:
             try:

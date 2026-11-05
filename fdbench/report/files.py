@@ -9,6 +9,18 @@ from typing import List
 from ..suites import GROUPS, KIND_LABELS
 from ..score.scorer import VOICE_FEATURES
 from ..util import read_json, write_json
+from . import resources_html
+
+# machine resources rows (results.csv and compare): label, path in results["resources"]["run"], unit, better
+RES_ROWS = [
+    ("Peak temperature", "temp_max", "°C", "lower"),
+    ("Time throttled or capped", "throttled_share", "rate", "lower"),
+    ("CPU median, all cores", "cpu_median", "%", "lower"),
+    ("CPU p95, all cores", "cpu_p95", "%", "lower"),
+    ("Busiest core p95", "busiest_core_p95", "%", "lower"),
+    ("Lowest ARM clock", "mhz_min", "MHz", "higher"),
+    ("Lowest free RAM", "mem_avail_min_mb", "MB", "higher"),
+]
 
 ROWS = [
     ("v1", "TOR, pause handling (synthetic)", "v1_pause_synth.tor", "rate", "lower"),
@@ -74,6 +86,11 @@ def _write_csv(path: Path, summary: dict, session: dict) -> None:
             else:
                 w.writerow([session.get("student"), paper, name, key, v.get("mean_delta"), v.get("n"), "", "", "", "",
                             "", v.get("mean_delta"), v.get("p"), v.get("expected", "")])
+        run = ((summary.get("resources") or {}).get("run")) or {}
+        for name, key, unit, better in RES_ROWS:
+            if run.get(key) is not None:
+                w.writerow([session.get("student"), "resources", f"{name} ({unit})", f"resources.{key}", run[key],
+                            run.get("n"), "", "", "", "", "", "", "", better])
 
 
 # ------------------------------------------------------------------ HTML
@@ -138,7 +155,7 @@ def render_html(out: dict) -> str:
 table{{border-collapse:collapse;width:100%;font-size:14px}}td,th{{border-bottom:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:middle}}
 th{{font-size:12px;text-transform:uppercase;color:#666}}.na{{color:#999}}.n{{color:#666;font-size:12px}}h2{{margin-top:32px}}
 .meta{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 24px;font-size:14px}}.meta b{{color:#666;font-weight:500}}
-small{{color:#666}}</style></head><body>
+small{{color:#666}}{resources_html.CSS}</style></head><body>
 <h1>Full-duplex benchmark results</h1>
 <div class="meta">
 <div><b>Student</b><br>{html.escape(str(s.get('student','')))}</div>
@@ -154,6 +171,7 @@ small{{color:#666}}</style></head><body>
 <p><small>Rates show the 95% Wilson interval as a dark line. Latency bars: dark = median, light = p95, dashed green line = 1 s target (axis 0–3 s). Metrics follow Lin et al., Full-Duplex-Bench v1 (2025) and v1.5 (2026); missed and false turn-taking rates are this course's split of turn-taking. See docs/METHOD.md.</small></p>
 <h2>Trials per group</h2><table><tbody>{counts}</tbody></table>
 {('<h2>Notes</h2><ul>' + notes + '</ul>') if notes else ''}
+{resources_html.render(out.get("resources"))}
 </body></html>"""
 
 
@@ -175,5 +193,16 @@ def compare_table(result_files: List[Path]) -> List[List[str]]:
                 row.append(f"{v['mean']:.2f}" if v.get("mean") is not None else "—")
             else:
                 row.append(f"{v['mean_delta']:+.2f}" + ("*" if v.get("significant") else "") if v.get("n") else "—")
+        table.append(row)
+    for name, key, unit, better in RES_ROWS:
+        row = [f"{name} ({better})"]
+        for _, r in runs:
+            v = ((r.get("resources") or {}).get("run") or {}).get(key)
+            if v is None:
+                row.append("—")
+            elif unit == "rate":
+                row.append(f"{v*100:.1f}%")
+            else:
+                row.append(f"{v:.0f} {unit}")
         table.append(row)
     return table

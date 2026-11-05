@@ -45,3 +45,15 @@ tests one call. Gemini uses its OpenAI-compatible endpoint; Hermes uses `NOUS_AP
 
 **Numbers differ from the papers.** Different ASR, live rig, smaller samples, live overlap timing; see docs/METHOD.md "Deviations".
 Compare classmates to each other with `python -m fdbench compare runs/*`, same rounds and judge for everyone.
+
+**Machine resources: "No machine stats in this run".** The launcher on her machine is older than fdbench, or was
+started with `--no-stats`. Update fd-benchmark on the Pi (`git -C ~/ME3/fd-benchmark pull`) and restart the launcher.
+For `--sim` or virtual cables, add `--host-stats`.
+
+**Machine resources: no temperature, clock or throttle flags.** `vcgencmd` is missing or not allowed: on Raspberry Pi
+OS it is in `libraspberrypi-bin`, and the user needs to be in the `video` group (`sudo usermod -aG video $USER`, then
+log in again). `python -m fdbench.probe` prints what is available.
+
+**Throttled or under-voltage during the run.** Throttling slows every stage on the Pi and inflates latencies. Use the
+official 5.1 V / 3 A power supply, a heatsink and fan, and rerun the trials listed under "Trials that ran while
+throttled", or report them separately.

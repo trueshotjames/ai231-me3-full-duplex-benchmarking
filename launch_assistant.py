@@ -12,6 +12,10 @@ own code is not changed and runs normally when started the usual way.
 Put FDBENCH_URL=ws://LAPTOP-IP:8791 (and FDBENCH_PROJECT if fd-benchmark is not inside the project) in
 fd-benchmark/.env on the Pi, and the command is just `python launch_assistant.py`.
 
+While connected it also sends her machine's CPU (per core and per process: assistant, ASR/TTS/tools MCP servers),
+memory, temperature, ARM clock and throttle flags once a second over the same socket (fdbench/probe.py, standard
+library only). `--no-stats` turns that off; `--stats-procs` names MCP servers that run as separate services.
+
 By default it keeps running: when fdbench ends a run and closes the socket, the assistant shuts down cleanly and
 the launcher waits for the next run, then starts her fresh. Ctrl+C stops it. `--once` exits after one run.
 
@@ -128,7 +132,32 @@ def wait_for_server(url: str, stop_after: float | None) -> bool:
         time.sleep(1.0)
 
 
-async def run_once(url: str, entry, log_dir: Path, echo: bool) -> None:
+async def stats_loop(ws, probe, hz: float) -> None:
+    """Send a hello, then one stats sample every 1/hz s, as text frames on the benchmark socket."""
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    loop = asyncio.get_running_loop()
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fdbench-stats")
+    period = 1.0 / max(0.1, hz)
+    try:
+        await ws.send(json.dumps({"event": "stats_hello", "hello": probe.hello()}))
+        nxt = loop.time()
+        while True:
+            sample = await loop.run_in_executor(pool, probe.sample)  # file reads off the event loop
+            await ws.send(json.dumps({"event": "stats", "s": sample}))
+            nxt += period
+            await asyncio.sleep(max(0.0, nxt - loop.time()))
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001  (socket closed, or the probe failed: stats never stop the assistant)
+        print(f"stats: stopped ({type(e).__name__}: {e})")
+    finally:
+        pool.shutdown(wait=False)
+
+
+async def run_once(url: str, entry, log_dir: Path, echo: bool, stats_hz: float = 1.0,
+                   stats_procs: str | None = None) -> None:
     from pipecat_fdbench import make_benchmark_transport
 
     out_sr = 16000
@@ -143,13 +172,24 @@ async def run_once(url: str, entry, log_dir: Path, echo: bool) -> None:
         run_coro, cancel = await entry.build(transport, log_dir)
     loop = asyncio.get_running_loop()
     done = loop.create_future()
+    stats_task = None
 
     @transport.event_handler("on_connected")
     async def on_connected(t, ws):
+        nonlocal stats_task
         print(f"connected to fdbench at {url}" + (" (echo test)" if echo else " · benchmark mode"))
+        if stats_hz > 0 and stats_task is None:
+            try:
+                from fdbench.probe import Probe, parse_patterns
+                probe = Probe(root_pid=os.getpid(), patterns=parse_patterns(stats_procs))
+                stats_task = asyncio.create_task(stats_loop(ws, probe, stats_hz))
+            except Exception as e:  # noqa: BLE001
+                print(f"stats: not sent ({e})")
 
     @transport.event_handler("on_disconnected")
     async def on_disconnected(t, ws):
+        if stats_task is not None:
+            stats_task.cancel()
         if not done.done():
             done.set_result(True)
             print("fdbench closed the connection: run over, shutting the assistant down")
@@ -183,6 +223,14 @@ def check(entry, project, url) -> int:
         except Exception as e:  # noqa: BLE001
             ok = False
             print(f"audio:    audio_rates() failed: {e}")
+    try:
+        from fdbench.probe import Probe
+        caps = Probe(root_pid=os.getpid()).capabilities()
+        have = [k for k in ("cpu", "memory", "processes", "temperature", "clock", "throttle") if caps.get(k)]
+        print(f"stats:    {', '.join(have) if have else 'none on this machine'}"
+              + (f" ({caps['backend']})" if caps.get("backend") else " (install psutil for CPU and RAM)"))
+    except Exception as e:  # noqa: BLE001
+        print(f"stats:    unavailable ({e})")
     print(f"fdbench:  {url}")
     print("READY" if ok else "NOT READY: fix the lines above (docs/GUIDE.md, step 4)")
     return 0 if ok else 1
@@ -197,6 +245,11 @@ def main() -> None:
     ap.add_argument("--echo", action="store_true", help="link test: echo audio back, do not start the assistant")
     ap.add_argument("--wait", type=float, default=None, help="give up if fdbench is not reachable after this many seconds")
     ap.add_argument("--check", action="store_true", help="check the setup (entry, project, Pipecat, audio rates) and exit")
+    ap.add_argument("--stats-hz", type=float, default=1.0, help="machine stats samples per second sent to fdbench (default 1)")
+    ap.add_argument("--no-stats", action="store_true", help="do not send machine stats")
+    ap.add_argument("--stats-procs", default=None,
+                    help="label=command-line fragment pairs for her processes, comma separated "
+                         "(default asr_mcp=mcp_servers.asr,tts_mcp=mcp_servers.tts,tools_mcp=mcp_servers.tools)")
     args = ap.parse_args()
 
     entry = project = None
@@ -218,7 +271,8 @@ def main() -> None:
                 sys.exit(f"fdbench not reachable at {args.url}")
             runs += 1
             print(f"--- run {runs}: starting " + ("echo" if args.echo else "the assistant"))
-            asyncio.run(run_once(args.url, entry, log_dir, args.echo))
+            asyncio.run(run_once(args.url, entry, log_dir, args.echo, stats_hz=(0.0 if args.no_stats else args.stats_hz),
+                                 stats_procs=args.stats_procs))
             if args.once:
                 return
             print("--- waiting for the next run (Ctrl+C to quit)")
