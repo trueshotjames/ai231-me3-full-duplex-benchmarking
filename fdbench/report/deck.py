@@ -73,9 +73,14 @@ def build(out: dict) -> dict:
     ram = f"{ram_mb / 1024:.0f} GB" if ram_mb else (f"{mach.get('ram_gb')} GB" if mach.get("ram_gb") else None)
     run = res.get("run") or {}
     link = s.get("link") or {}
-    network = hello.get("network") or mach.get("network")
-    if link.get("rtt_ms") is not None:
-        network = f"{network or '?'} · link to fdbench {link['rtt_ms']:.0f} ms round trip"
+    names = {"wifi": "Wi-Fi", "ethernet": "Ethernet"}
+    cloud = hello.get("network") or mach.get("network")
+    parts = [f"cloud: {names.get(cloud, cloud)}"] if cloud else []
+    lnk = hello.get("link_network")
+    rtt = f"{link['rtt_ms']:.0f} ms round trip" if link.get("rtt_ms") is not None else None
+    if lnk or rtt:
+        parts.append("benchmark link: " + ", ".join(x for x in (names.get(lnk, lnk), rtt) if x))
+    network = " · ".join(parts) or None
     cooling = s.get("cooling") or "not stated"
     if run.get("temp_max") is not None:
         cooling += f" · peak {run['temp_max']:.0f} °C"

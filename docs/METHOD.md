@@ -96,7 +96,14 @@ fdbench's clock with the offset min(receive − t) over the run, as for the mach
 **Barge-in** = t_stop (above) on the v1 and v1.5 interruption trials where she was speaking at the overlap onset and
 stopped; trials she talked through are counted separately, not as a latency.
 
-**Context size** = prompt tokens per LLM call over all trials: the LLM's reported usage (input incl. cache) when sent,
+**Early (speculative) LLM calls.** Some assistants start the LLM on a partial transcript before the turn has ended
+(Pipecat speculation; marked `llm_request` with `speculative=True`). Latency uses only normal `llm_request` marks, so
+LLM TTFT still counts from the final transcript; when an early call's reply is the one spoken, its first token can come
+before the final transcript and LLM TTFT then reads short (E2E is not affected). For context size, only calls that
+answer a final transcript count: normal calls, and an early call that the turn end confirms (no `llm_cancel` or newer
+`llm_request` before the next `user_stopped` / `audio_out`). Discarded early calls are left out.
+
+**Context size** = prompt tokens per LLM call that answered a final transcript, over all trials: the LLM's reported usage (input incl. cache) when sent,
 else the request's own `prompt_tokens`, else characters / 4 (marked "estimate"); median, max, first → last call, and
 the median per run of the stage test. Tool calls: `tool_end` − `tool_start` per call.
 

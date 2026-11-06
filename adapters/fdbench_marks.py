@@ -35,7 +35,9 @@ STAGES = {
     "user_stopped": "the turn was handed on (Pipecat UserStoppedSpeakingFrame); used when vad_end is missing",
     "asr_partial": "a partial transcript arrived (text=...)",
     "asr_final": "the final transcript is ready (text=...)",
-    "llm_request": "the LLM call starts (prompt_tokens=..., messages=..., chars=...)",
+    "llm_request": "the LLM call starts (prompt_tokens=..., messages=..., chars=...; speculative=True if it starts "
+                   "before the turn has ended)",
+    "llm_cancel": "an early (speculative) LLM call was discarded because the turn had not really ended",
     "llm_first_token": "the first token of the LLM reply arrived",
     "llm_usage": "token usage reported by the LLM (prompt_tokens=..., completion_tokens=...)",
     "tts_request": "text was sent to TTS",
