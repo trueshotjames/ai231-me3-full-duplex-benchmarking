@@ -4,6 +4,9 @@ The fake assistant hears what the rig plays, waits for the end of user speech (i
 `response_delay`, then speaks a snippet of real speech (so the Silero VAD on the rig side sees it as speech).
 When the user talks over it, it stops after `stop_delay` (or never, if None) and comes back after
 `resume_delay` with another snippet. Behaviour knobs let tests exercise each verdict.
+
+It also sends the stage marks a Pipecat assistant would (vad_end, asr_final, llm_first_token, tts_first_audio,
+audio_out, interrupted, ...) on a virtual clock, so the stage-latency report can be tried without hardware.
 """
 from __future__ import annotations
 
@@ -15,6 +18,7 @@ from typing import Optional
 import numpy as np
 
 from .. import SR
+from ..marks import MarksStore
 from ..util import load_audio
 from .base import RigBase, Recording, TrialScript
 from .vad import LiveVAD
@@ -38,8 +42,12 @@ class FakeBehaviour:
 class FakeAssistant:
     """Reacts to a 16 kHz stream in `chunk`-sized steps and produces its own 16 kHz output."""
 
-    def __init__(self, voices: list[np.ndarray], behaviour: FakeBehaviour, chunk: int, ignore_user: bool = False):
+    def __init__(self, voices: list[np.ndarray], behaviour: FakeBehaviour, chunk: int, ignore_user: bool = False,
+                 emit=None, ref_text: str = ""):
         self.voices = voices
+        self.emit = emit or (lambda stage, t, **f: None)  # stage marks, t = trial seconds
+        self.ref_text = ref_text
+        self.turns = 0
         self.b = behaviour
         self.chunk = chunk
         self.ignore_user = ignore_user  # "this audio is not for me": a perfect addressee detector
@@ -55,6 +63,7 @@ class FakeAssistant:
 
     def _user_start(self, t):
         self.user_start_t = t
+        self.emit("vad_start", t)
         if self.speaking_until is not None and self.b.stop_delay is not None:
             # user talks over us: schedule a stop
             self.stop_at = t + self.b.stop_delay
@@ -69,6 +78,29 @@ class FakeAssistant:
             self.pending_reply_at = t + self.b.resume_delay
         else:
             self.pending_reply_at = t + self.b.response_delay
+        self._emit_turn(t, self.pending_reply_at)
+
+    def _emit_turn(self, t_end, t_out):
+        """Marks for one turn, splitting the reply delay like a cascaded pipeline would."""
+        r = self.rng
+        d = max(0.05, t_out - t_end)
+        asr = d * r.uniform(0.18, 0.30)
+        llm = d * r.uniform(0.35, 0.50)
+        tts = d * r.uniform(0.15, 0.22)
+        self.turns += 1
+        self.emit("vad_end", t_end)
+        words = self.ref_text.split()
+        if words and r.random() < 0.3:  # an occasional ASR slip, so WER is not always 0
+            words = words[:-1] if r.random() < 0.5 else words + ["please"]
+        self.emit("asr_final", t_end + asr, text=" ".join(words) or "(sim)")
+        self.emit("llm_request", t_end + asr + 0.005, messages=1 + 2 * self.turns, est_tokens=600 + 140 * self.turns,
+                  chars=4 * (600 + 140 * self.turns))
+        if self.turns % 4 == 0:
+            self.emit("tool_start", t_end + asr + 0.01, name="get_weather")
+            self.emit("tool_end", t_end + asr + 0.01 + llm * 0.5, name="get_weather")
+        self.emit("llm_first_token", t_end + asr + llm)
+        self.emit("tts_request", t_end + asr + llm + 0.01)
+        self.emit("tts_first_audio", t_end + asr + llm + 0.01 + tts)
 
     def step(self, user_audio: np.ndarray) -> np.ndarray:
         self.vad.feed(user_audio)
@@ -81,6 +113,7 @@ class FakeAssistant:
             self.speech_buf = np.zeros(0, np.float32)
             self.stop_at = None
             self.interrupted = True
+            self.emit("interrupted", t)
         # start a reply
         if self.pending_reply_at is not None and t >= self.pending_reply_at:
             self.pending_reply_at = None
@@ -104,6 +137,7 @@ class FakeAssistant:
         self.speech_buf = voice[start:start + need].copy()
         self.speaking_until = (self.pos + need) / SR
         self.has_replied_once = True
+        self.emit("audio_out", self.pos / SR)
 
 
 class SimRig(RigBase):
@@ -120,12 +154,22 @@ class SimRig(RigBase):
         self.voices = [load_audio(p) for p in sorted(voices_dir.rglob("output.wav"))]
         if not self.voices:
             raise RuntimeError(f"No voice clips found under {voices_dir}")
+        self.marks = MarksStore()
+        self.marks.models = {"ASR": "sim", "LLM": "sim", "TTS": "sim", "VAD": "Silero (sim)", "harness": "fdbench sim"}
+        self._vclock = 1000.0  # virtual monotonic clock: the sim runs faster than real time
 
     def run(self, script: TrialScript) -> Recording:
         beh = self.decide(script) if self.decide else self.behaviour
         rng = random.Random(hash((beh.seed, len(script.play_first))))
         ignore = script.tag == "foreign" and rng.random() >= beh.responds_to_foreign
-        bot = FakeAssistant(self.voices, beh, self.chunk, ignore_user=ignore)
+        base = self._vclock
+
+        def emit(stage, t, **f):
+            tt = base + t
+            self.marks.add({"stage": stage, "t": tt, **f}, recv=tt, src="sim")
+
+        bot = FakeAssistant(self.voices, beh, self.chunk, ignore_user=ignore, emit=emit, ref_text=script.ref_text)
+        bot.rng = random.Random(hash((beh.seed, round(base))))  # stage timings vary from trial to trial
         if script.tag == "pause" and rng.random() < beh.cut_in_on_pause:
             bot.vad.min_silence = 0.3  # an eager bot treats a short pause as the end of the turn
         sess = self._Session(self, script)
@@ -140,4 +184,6 @@ class SimRig(RigBase):
                 time.sleep(self.chunk / SR)
         rec = sess.finish()
         rec.notes["rig"] = "sim"
+        rec.mono0 = base
+        self._vclock = base + rec.duration + 100.0
         return rec

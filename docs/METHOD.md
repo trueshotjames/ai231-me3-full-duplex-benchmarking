@@ -55,14 +55,58 @@ Between trials the assistant gets 6 s of silence (or `--reset-cmd`).
 
 ## Aggregation
 
-Rates: k/n with a 95 % Wilson interval. Latencies: median, **p95** and mean (the papers report means), with a bootstrap
-interval on the median; with fewer than 20 trials p95 is flagged as close to the slowest trial.
+Rates: k/n. Latencies: median, **p95** and mean (the papers report means; the course template asks for mean + p95);
+with fewer than 20 trials p95 is flagged as close to the slowest trial.
 
 ## Queue
 
 Trials are drawn without replacement per group from a seeded shuffle and arranged in rounds; each round holds one trial
 of every group (two false turn-taking clips, rotating the four kinds). Stopping after any trial leaves every group
 represented; the per-group counts are in `results.json`. The seed is in `session.json` and `queue.json` and a stopped run resumes with `run --resume RUN_DIR`.
+
+## Stage latency (course template, section 5)
+
+The machine exercise's 2-page template asks for a standardized latency method: one clock (the Raspberry Pi's
+monotonic clock), every stage timestamped (VAD end → ASR final → LLM 1st token → TTS 1st audio → speaker),
+N phrases × M runs, mean + p95, a JSON log per run. fdbench is black-box, so the stage times come from the assistant
+as **stage marks** (docs/STAGES.md): `adapters/fdbench_marks.py`, or `adapters/pipecat_marks.py`, which the launcher
+attaches to any Pipecat pipeline.
+
+**Trials.** Group "stage latency": N phrases (default 10, `--phrases`) drawn once from the clean user turns that come
+with a reference transcript (v1 interruption questions and v1.5 user turns), or your own (`--phrases-dir`: audio + a
+same-name `.txt`), each played once per run for M runs (default 3, `--runs`), before the Full-Duplex-Bench rounds. A
+trial plays the phrase and records up to 8 s after it, ending 1.2 s after she goes quiet; 6 s of silence between trials.
+
+**Clock.** Each mark carries the assistant machine's `time.monotonic()`. All stage times below are differences of
+these, so network delay does not enter them. To find a turn's marks and to compare with the audio, marks are mapped to
+fdbench's clock with the offset min(receive − t) over the run, as for the machine stats.
+
+**Per turn** (the reply = the first `audio_out` after the user's speech ends):
+- VAD end = last `vad_end` before the reply (fallback `user_stopped`); LLM request = first `llm_request` after it;
+  ASR final = last `asr_final` before that request (several segments are joined for WER).
+- **E2E** = `audio_out` − `vad_end`. Without an `audio_out` mark: reply audio start (fdbench's VAD) − `vad_end`, marked
+  "audio". With no marks at all, the summary falls back to **E2E heard** (below), marked "from audio".
+- **ASR final** = `asr_final` − `vad_end` (0 if the transcript was already final before the VAD end, as with streaming STT).
+- **LLM TTFT** = `llm_first_token` − `asr_final`. **TTS TTFB** = `tts_first_audio` − `tts_request`.
+- **E2E heard** = start of her reply in the recording − true end of speech in the played clip (fdbench's Silero VAD).
+  **VAD endpointing delay** = `vad_end` (mapped) − true end of speech: the silence her VAD waits for plus input buffering.
+- **WER** = word edits / reference words, after lower-casing and removing punctuation, `[UH]` annotations and filler
+  words (uh, um, …); corpus WER over all turns is the headline, the mean per-phrase WER is also reported.
+
+**Barge-in** = t_stop (above) on the v1 and v1.5 interruption trials where she was speaking at the overlap onset and
+stopped; trials she talked through are counted separately, not as a latency.
+
+**Context size** = prompt tokens per LLM call over all trials: the LLM's reported usage (input incl. cache) when sent,
+else the request's own `prompt_tokens`, else characters / 4 (marked "estimate"); median, max, first → last call, and
+the median per run of the stage test. Tool calls: `tool_end` − `tool_start` per call.
+
+**Targets** (summary table): E2E 1.5 s, ASR final 0.5 s, LLM TTFT 0.6 s, TTS TTFB 0.5 s, barge-in 0.8 s, WER 15 %;
+change with the wizard, `--targets`, or `targets.json` (see `targets.example.json`). "met" = mean and p95 under the
+target; "p95 over" = mean under, p95 over; "over" = mean over.
+
+**Reported:** `deck_summary` first in `results.json`, the deck-styled summary at the top of `results.html`,
+`summary.md` and `latency_chart.svg` to paste into slides, course rows at the top of the metrics table, and
+`stage_latency.json` (every turn, per-run mean and p95).
 
 ## Machine resources (ours)
 
@@ -111,3 +155,4 @@ samples the machine fdbench runs on, without process labels.
 | Sample size | all clips | 30 per group available, rounds decide how many | wider intervals |
 | Candor turn-taking clips | full clip incl. silence | cut 0.3 s after the turn end | none |
 | v1.5 UTMOSv2 | always | optional (heavy) | reported as not scored when missing |
+| Stage latency (course) | — | needs the assistant's stage marks | stage rows "not reported" without them; E2E and barge-in still from audio |

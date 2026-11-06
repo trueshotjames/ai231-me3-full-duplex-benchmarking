@@ -15,3 +15,6 @@ datasets/*
 !datasets/DATA_LICENSES.md
 runs/*
 !runs/.gitkeep
+
+# your own summary targets (copy targets.example.json)
+targets.json

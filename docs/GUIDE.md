@@ -100,6 +100,10 @@ Then, for both A and B:
 PROJ_PY launch_assistant.py --check
 ```
 
+The `marks:` line says the stage timings (ASR final, LLM first token, TTS first audio, for the course summary) will be
+picked up from your Pipecat pipeline automatically. Not Pipecat, or want model names on the results card? See
+[STAGES.md](STAGES.md); everything else works without it.
+
 **Check:** the last line is `READY`. If it says `NOT READY`, fix the line it points at: `pipecat: NOT USABLE` means
 you used the wrong Python (use `PROJ_PY`) or Pipecat lacks `[websocket]`; `project not found` means fd-benchmark is
 not inside the project (set `FDBENCH_PROJECT`, step 1); `audio: input must be 16000` means change her input rate.
@@ -113,13 +117,18 @@ FDB -m fdbench
 ```
 
 Answer: student number · rounds `1` · connection `a` (direct feed) · where she runs `a` (this machine) · judge `n`
-(or a letter). Pre-flight runs; press `p`.
+(or a letter) · summary targets (Enter keeps them: E2E 1.5 s, ASR 0.5 s, LLM 0.6 s, TTS 0.5 s, barge-in 0.8 s,
+WER 15 %) · cooling (for the results card). Pre-flight runs; press `p`. The run starts with the stage-latency test
+(10 phrases × 3 runs, about 9 min; `--phrases` / `--runs` to change, `--phrases 0` to skip), then the rounds.
 
 Non-interactive (for agents or scripts), same thing:
 
 ```powershell
 FDB -m fdbench run --student 2025xxxxx --rounds 1 --connect direct --where local --judge-provider none --yes --recordings k
 ```
+
+Add `--targets e2e=1.0,llm_ttft=0.4` for your own targets and `--cooling "heatsink + fan"` for the results card.
+`--rounds 0` runs only the stage-latency test.
 
 fdbench starts the assistant itself with `PROJ_PY`, waits for her, measures the link, runs every clip, and shuts her
 down at the end. One terminal, nothing else. Keys during the run: `space` pause, `s` skip clip, `q` stop early.
@@ -131,7 +140,7 @@ with "Her launcher exited" or "She did not connect", read the last lines it prin
 ## 6. [laptop] Results
 
 Each run is saved under `runs/<student>/<date-time>/`: `results.html` (open in a browser), `results.json`,
-`results.csv`, `run.log`, `events.jsonl`, `session.json` (where she ran, link round trip), `assistant.log`, her own
+`summary.md`, `latency_chart.svg`, `stage_latency.json`, `results.csv`, `run.log`, `events.jsonl`, `session.json` (where she ran, link round trip), `assistant.log`, her own
 turn/latency logs in `assistant/`, and the audio of every trial.
 
 The v1.5 behaviour labels (Respond / Resume / Uncertain / Unknown) need transcripts plus a judge. Without a judge the
@@ -143,7 +152,12 @@ FDB -m fdbench score   runs/<student>/<date-time> --judge-provider hermes
 FDB -m fdbench compare runs/<student>/<run-1> runs/<student>/<run-2>
 ```
 
-**Check:** `results.html` opens and shows the metrics.
+`results.html` starts with a **deck summary** laid out like the course's 2-page template: the section 5 table (Metric,
+Definition, Target, Mean, p95), the latency chart and results card for deck 2, and the context size for section 3,
+each with a Copy button (pastes into Slides / PowerPoint as a table) and Save SVG / PNG for the chart. `summary.md`
+holds the same in text. The full report follows below it. To change targets later: `score RUN_DIR --targets e2e=1.0`.
+
+**Check:** `results.html` opens and shows the deck summary and the metrics.
 
 ## 7. [laptop] Longer runs
 
@@ -226,7 +240,8 @@ Pi prints that it is waiting for the next run; the next laptop run connects stra
 While connected, the launcher also sends the Pi's CPU (per core and per process), RAM, temperature, ARM clock and
 throttle flags once a second. The live table shows them between trials (`Pi 62 °C · CPU 48% · 1500 MHz`) and
 `results.html` gets a "Machine resources" section (docs/METHOD.md). `--no-stats` on the launcher turns this off;
-`python -m fdbench.probe` on the Pi shows what it can read.
+`python -m fdbench.probe` on the Pi shows what it can read. The results card takes the Pi model, RAM and network
+(Ethernet / Wi-Fi) from the same data.
 
 Compare the laptop and Pi runs with `FDB -m fdbench compare runs/<student>/<laptop-run> runs/<student>/<pi-run>`.
 Her own turn/latency logs from a Pi run stay on the Pi in `~/ME3/fd-benchmark/runs/_assistant/` (except option D).

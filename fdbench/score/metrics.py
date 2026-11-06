@@ -1,28 +1,15 @@
-"""Aggregation: rates with Wilson intervals, latencies with median / p95 / mean and bootstrap intervals,
-paired t-tests for voice change."""
+"""Aggregation: rates (k/n), latencies with median / p95 / mean, paired t-tests for voice change."""
 from __future__ import annotations
 
-import math
 from typing import List, Optional
 
 import numpy as np
 
 
-def wilson(k: int, n: int, z: float = 1.96) -> tuple:
-    if n == 0:
-        return (None, None)
-    p = k / n
-    denom = 1 + z * z / n
-    centre = (p + z * z / (2 * n)) / denom
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
-    return (max(0.0, centre - half), min(1.0, centre + half))
-
-
 def rate(flags: List[int]) -> dict:
     n = len(flags)
     k = int(sum(1 for f in flags if f))
-    lo, hi = wilson(k, n)
-    return {"n": n, "k": k, "value": (k / n if n else None), "ci95": [lo, hi]}
+    return {"n": n, "k": k, "value": (k / n if n else None)}
 
 
 def latency(values: List[float], seed: int = 0) -> dict:

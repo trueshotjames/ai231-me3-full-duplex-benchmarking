@@ -148,11 +148,41 @@ class Probe:
         return {"backend": None, "cpu": False, "cores": False, "memory": False, "processes": False,
                 "temperature": False, "clock": False, "throttle": False}
 
+    def _ram_mb(self):
+        txt = self._read("/proc/meminfo") or ""
+        for line in txt.splitlines():
+            if line.startswith("MemTotal:"):
+                try:
+                    return round(int(line.split()[1]) / 1024)
+                except (IndexError, ValueError):
+                    return None
+        if self._psutil is not None:
+            try:
+                return round(self._psutil.virtual_memory().total / 2**20)
+            except Exception:  # noqa: BLE001
+                return None
+        return None
+
+    def _network(self):
+        """'ethernet' / 'wifi' from the interface of the default route (Linux), else None."""
+        txt = self._read("/proc/net/route") or ""
+        for line in txt.splitlines()[1:]:
+            f = line.split()
+            if len(f) > 2 and f[1] == "00000000":
+                iface = f[0]
+                if iface.startswith(("wl", "wlan")):
+                    return "wifi"
+                if iface.startswith(("eth", "en")):
+                    return "ethernet"
+                return iface
+        return None
+
     def hello(self) -> dict:
         model = (self._read("/proc/device-tree/model") or "").strip("\x00\n ") or None
         return {"host": platform.node(), "os": f"{platform.system()} {platform.release()}", "machine": platform.machine(),
                 "pi_model": model, "ncpu": self.ncpu, "caps": self.capabilities(), "slow_every": self.slow_every,
-                "patterns": self.patterns, "python": platform.python_version()}
+                "patterns": self.patterns, "python": platform.python_version(), "ram_mb": self._ram_mb(),
+                "network": self._network()}
 
     # ------------------------------------------------------------------ one sample
     def sample(self) -> dict:
