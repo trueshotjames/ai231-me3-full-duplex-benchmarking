@@ -47,6 +47,9 @@ def build(out: dict) -> dict:
                     else f"source: {v.get('source')}")
         if key == "barge_in" and v.get("kept_talking"):
             note = f"{v['kept_talking']} interruption(s) she talked through, not counted"
+        if key == "llm_ttft" and v.get("early_calls"):
+            note = (f"{v['early_calls']} of {v.get('n', 0)} replies came from an early LLM call started before the "
+                    "final transcript, so TTFT reads short there; E2E is the fair end-to-end figure")
         if n == 0:
             note = ("not reported: the assistant sent no stage marks (docs/STAGES.md)" if key in MARK_BASED
                     else "no data in this run")

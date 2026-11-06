@@ -66,6 +66,17 @@ def test_early_llm_calls_count_only_when_the_turn_end_confirms_them():
     s = turn_stages(ms, user_end=2.7, bot_start=3.75, ref_text="hello there")
     assert s["context_tokens"] == 812 and s["context_messages"] == 3
     assert abs(s["asr_final"] - 0.3) < 1e-6 and abs(s["e2e"] - 0.7) < 1e-6  # latency unchanged by early calls
+    assert s["context_early"] is True
+    # a normal call while the user is still talking (no final transcript since her last reply) answered nothing
+    ms2 = [_m("audio_out", 500.0, 0.0), _m("interrupted", 500.5, 0.5),
+           _m("llm_request", 500.6, 0.6, est_tokens=999, messages=4),
+           _m("asr_final", 502.0, 2.0, text="go on"), _m("llm_request", 502.1, 2.1, est_tokens=900, messages=4)]
+    assert [c["tokens"] for c in context_calls(ms2)] == [900]
+    ms3 = ms2 + [_m("tool_start", 502.5, 2.5, name="w"), _m("tool_end", 502.8, 2.8, name="w"),
+                 _m("llm_request", 502.9, 2.9, est_tokens=950, messages=6)]
+    assert [c["tokens"] for c in context_calls(ms3)] == [900, 950]  # the follow-up call after a tool counts
+    # no ASR marks at all (e.g. speech-to-speech): every normal call counts
+    assert len(context_calls([_m("llm_request", 1.0, 1.0, est_tokens=5), _m("llm_request", 2.0, 2.0, est_tokens=6)])) == 2
     # an early call with nothing after it (no turn end) answered nothing
     assert context_calls([_m("llm_request", 1.0, 1.0, speculative=True, est_tokens=5)]) == []
 

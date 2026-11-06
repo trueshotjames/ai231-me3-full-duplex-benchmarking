@@ -99,8 +99,10 @@ stopped; trials she talked through are counted separately, not as a latency.
 **Early (speculative) LLM calls.** Some assistants start the LLM on a partial transcript before the turn has ended
 (Pipecat speculation; marked `llm_request` with `speculative=True`). Latency uses only normal `llm_request` marks, so
 LLM TTFT still counts from the final transcript; when an early call's reply is the one spoken, its first token can come
-before the final transcript and LLM TTFT then reads short (E2E is not affected). For context size, only calls that
-answer a final transcript count: normal calls, and an early call that the turn end confirms (no `llm_cancel` or newer
+before the final transcript and LLM TTFT then reads short (E2E is not affected); the summary's LLM TTFT row
+says how many replies this applies to. For context size, only calls that
+answer a final transcript count: normal calls made after a final transcript (a call started while the user is still
+talking, e.g. right after an interruption, is left out), and an early call that the turn end confirms (no `llm_cancel` or newer
 `llm_request` before the next `user_stopped` / `audio_out`). Discarded early calls are left out.
 
 **Context size** = prompt tokens per LLM call that answered a final transcript, over all trials: the LLM's reported usage (input incl. cache) when sent,

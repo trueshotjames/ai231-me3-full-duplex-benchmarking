@@ -54,16 +54,26 @@ _SETTLES = ("llm_cancel", "llm_request", "user_stopped", "audio_out")
 def answering_requests(ms: List[dict]) -> List[dict]:
     """The LLM calls that answer a final transcript, as the template's context size means.
 
-    A normal call counts. An early (speculative) call, started on a partial transcript before the turn ended, counts
+    A normal call counts when a final transcript came after the previous call / reply (a call started while the
+    user is still talking, e.g. right after an interruption, answered nothing). An early (speculative) call, started on a partial transcript before the turn ended, counts
     only when the turn end confirms it: the next of llm_cancel / llm_request / user_stopped / audio_out is a turn
     end, so its reply is the one that was spoken and its context holds the final transcript. A call that was
     cancelled or replaced answered nothing and is left out."""
     out = []
+    has_final = any(m["stage"] == "asr_final" for m in ms)
+    last = None  # the latest of asr_final / tool_end / llm_request / audio_out so far
     for i, m in enumerate(ms):
         if m["stage"] != "llm_request":
+            if m["stage"] in ("asr_final", "tool_end", "audio_out"):
+                last = m["stage"]
             continue
+        prev, last = last, "llm_request"
         if not m.get("speculative"):
-            out.append(m)
+            # a normal call answers a final transcript only if one came since the last call / reply; the follow-up
+            # call after a tool result answers the same turn. With no asr_final marks at all (speech-to-speech),
+            # every normal call counts.
+            if prev in ("asr_final", "tool_end") or not has_final:
+                out.append(m)
             continue
         nxt = next((x for x in ms[i + 1:] if x["stage"] in _SETTLES), None)
         if nxt is not None and nxt["stage"] in ("user_stopped", "audio_out"):
@@ -114,6 +124,7 @@ def turn_stages(ms: List[dict], user_end: Optional[float], bot_start: Optional[f
     creq = _last(answering_requests(ms), "llm_request", t_after=(prev["t"] if prev else None), t_before=t_reply)
     if creq is not None:
         req = creq
+        out["context_early"] = bool(creq.get("speculative"))
         usage = _first(ms, "llm_usage", t_after=req["t"])
         if usage is not None and usage.get("prompt_tokens"):
             out["context_tokens"], out["context_source"] = usage["prompt_tokens"], "usage"
@@ -174,7 +185,8 @@ def aggregate(trials: List[dict], run_dir: Path) -> dict:
         run = int(t["trial"][1:3]) if t["trial"][:1] == "r" and t["trial"][1:3].isdigit() else None
         rows.append({"trial": t["trial"], "run": run, "clip": t["clip"], "ref": t.get("clip_meta", {}).get("text", ""),
                      **{k: s.get(k) for k in ("e2e", "e2e_source", "e2e_heard", "endpointing", "asr_final", "llm_ttft",
-                                               "tts_ttfb", "transcript", "context_tokens", "context_messages")},
+                                               "tts_ttfb", "transcript", "context_tokens", "context_messages",
+                                               "context_early")},
                      "wer": (s.get("wer") or {}).get("wer"), "wer_detail": s.get("wer"), "found": s.get("found", [])})
     res: Dict[str, dict] = {}
     for k in ("e2e", "asr_final", "llm_ttft", "tts_ttfb", "endpointing", "e2e_heard"):
@@ -185,6 +197,7 @@ def aggregate(trials: List[dict], run_dir: Path) -> dict:
     if res["course.e2e"]["n"] == 0 and res["course.e2e_heard"]["n"]:
         # no marks at all: the template's E2E falls back to the audio (true end of speech -> reply audio)
         res["course.e2e"] = dict(res["course.e2e_heard"], source="audio (no stage marks)")
+    res["course.llm_ttft"]["early_calls"] = sum(1 for r in rows if r.get("context_early"))
     res["course.wer"] = corpus([r["wer_detail"] for r in rows if r.get("wer_detail")])
 
     # barge-in: speech -> playback stopped, from the audio (interruption trials where she was speaking and stopped)
