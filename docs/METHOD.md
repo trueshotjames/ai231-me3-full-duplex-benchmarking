@@ -107,7 +107,7 @@ answer a final transcript count: normal calls, and an early call that the turn e
 else the request's own `prompt_tokens`, else characters / 4 (marked "estimate"); median, max, first → last call, and
 the median per run of the stage test. Tool calls: `tool_end` − `tool_start` per call.
 
-**Targets** (summary table): E2E 1.5 s, ASR final 0.5 s, LLM TTFT 0.6 s, TTS TTFB 0.5 s, barge-in 0.8 s, WER 15 %;
+**Targets** (summary table): E2E 4.0 s, ASR final 0.8 s, LLM TTFT 1.5 s, TTS TTFB 0.6 s, barge-in 0.8 s, WER 15 %;
 change with the wizard, `--targets`, or `targets.json` (see `targets.example.json`). "met" = mean and p95 under the
 target; "p95 over" = mean under, p95 over; "over" = mean over.
 

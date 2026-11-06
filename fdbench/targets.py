@@ -10,10 +10,10 @@ from .util import ROOT
 
 # key: (label, default, unit)
 TARGETS = {
-    "e2e": ("E2E latency", 1.5, "s"),
-    "asr_final": ("ASR final", 0.5, "s"),
-    "llm_ttft": ("LLM TTFT", 0.6, "s"),
-    "tts_ttfb": ("TTS TTFB", 0.5, "s"),
+    "e2e": ("E2E latency", 4.0, "s"),     # class agreement; leaves ~1 s for hand-offs, network and tool calls
+    "asr_final": ("ASR final", 0.8, "s"),
+    "llm_ttft": ("LLM TTFT", 1.5, "s"),   # includes tool time when a reply calls a tool
+    "tts_ttfb": ("TTS TTFB", 0.6, "s"),
     "barge_in": ("Barge-in", 0.8, "s"),
     "wer": ("WER", 0.15, "ratio"),
 }

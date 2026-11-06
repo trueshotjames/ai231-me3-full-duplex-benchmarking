@@ -36,7 +36,7 @@ def _add_common(p):
                    help="your own phrases for the stage-latency test: audio files with a same-name .txt transcript")
     p.add_argument("--targets", default=None,
                    help="summary targets, e.g. e2e=1.0,asr_final=0.3,llm_ttft=0.4,tts_ttfb=0.3,barge_in=0.5,wer=10%% "
-                        "(defaults: e2e 1.5 s, asr_final 0.5, llm_ttft 0.6, tts_ttfb 0.5, barge_in 0.8, wer 15%%)")
+                        "(defaults: e2e 4.0 s, asr_final 0.8, llm_ttft 1.5, tts_ttfb 0.6, barge_in 0.8, wer 15%%)")
     p.add_argument("--cooling", default=None, help="for the results card, e.g. 'heatsink + fan'")
     p.add_argument("--models", default=None,
                    help="model versions for the results card when the launcher cannot report them, "

@@ -26,7 +26,7 @@ def test_wer_normalizes_and_counts():
 def test_targets_parse_and_defaults():
     t = targets.parse("e2e=1.0, wer=10%, llm_ttft=0.4s")
     assert t == {"e2e": 1.0, "wer": 0.10, "llm_ttft": 0.4}
-    assert targets.DEFAULTS["e2e"] == 1.5
+    assert targets.DEFAULTS["e2e"] == 4.0
     full = targets.load("e2e=0.9", path=ROOT / "does-not-exist.json")
     assert full["e2e"] == 0.9 and full["asr_final"] == targets.DEFAULTS["asr_final"]
 

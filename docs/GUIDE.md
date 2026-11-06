@@ -117,7 +117,7 @@ FDB -m fdbench
 ```
 
 Answer: student number · rounds `1` · connection `a` (direct feed) · where she runs `a` (this machine) · judge `n`
-(or a letter) · summary targets (Enter keeps them: E2E 1.5 s, ASR 0.5 s, LLM 0.6 s, TTS 0.5 s, barge-in 0.8 s,
+(or a letter) · summary targets (Enter keeps them: E2E 4.0 s, ASR 0.8 s, LLM 1.5 s, TTS 0.6 s, barge-in 0.8 s,
 WER 15 %) · cooling (for the results card). Pre-flight runs; press `p`. The run starts with the stage-latency test
 (10 phrases × 3 runs, about 9 min; `--phrases` / `--runs` to change, `--phrases 0` to skip), then the rounds.
 
