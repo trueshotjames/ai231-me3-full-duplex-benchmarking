@@ -48,6 +48,29 @@ def _d(a, b) -> Optional[float]:
     return round(float(b["t"]) - float(a["t"]), 4) if a is not None and b is not None else None
 
 
+_SETTLES = ("llm_cancel", "llm_request", "user_stopped", "audio_out")
+
+
+def answering_requests(ms: List[dict]) -> List[dict]:
+    """The LLM calls that answer a final transcript, as the template's context size means.
+
+    A normal call counts. An early (speculative) call, started on a partial transcript before the turn ended, counts
+    only when the turn end confirms it: the next of llm_cancel / llm_request / user_stopped / audio_out is a turn
+    end, so its reply is the one that was spoken and its context holds the final transcript. A call that was
+    cancelled or replaced answered nothing and is left out."""
+    out = []
+    for i, m in enumerate(ms):
+        if m["stage"] != "llm_request":
+            continue
+        if not m.get("speculative"):
+            out.append(m)
+            continue
+        nxt = next((x for x in ms[i + 1:] if x["stage"] in _SETTLES), None)
+        if nxt is not None and nxt["stage"] in ("user_stopped", "audio_out"):
+            out.append(m)
+    return out
+
+
 def turn_stages(ms: List[dict], user_end: Optional[float], bot_start: Optional[float], ref_text: str = "") -> dict:
     """One clean user turn. user_end / bot_start: trial seconds from the audio (fdbench's VAD)."""
     out: dict = {"e2e_heard": (round(bot_start - user_end, 4) if (bot_start is not None and user_end is not None) else None)}
@@ -60,7 +83,8 @@ def turn_stages(ms: List[dict], user_end: Optional[float], bot_start: Optional[f
     vad = _last(ms, "vad_end", t_before=t_reply) or _last(ms, "user_stopped", t_before=t_reply)
     if vad is not None and vad.get("tt", 0) < ue - 2.0:  # an older turn's VAD end: ignore
         vad = None
-    req = _first(ms, "llm_request", t_after=(vad["t"] if vad else None), t_before=t_reply)
+    normal = [m for m in ms if not m.get("speculative")]
+    req = _first(normal, "llm_request", t_after=(vad["t"] if vad else None), t_before=t_reply)
     finals = [m for m in ms if m["stage"] == "asr_final" and m.get("tt", 0) >= -0.5
               and (req is None or m["t"] <= req["t"]) and (t_reply is None or m["t"] < t_reply)]
     asr = finals[-1] if finals else None
@@ -85,7 +109,11 @@ def turn_stages(ms: List[dict], user_end: Optional[float], bot_start: Optional[f
         out["transcript"] = hyp
         if ref_text:
             out["wer"] = wer(ref_text, hyp)
-    if req is not None:
+    # context size: the call that answered this turn (a confirmed early call counts; see answering_requests)
+    prev = _last(ms, "audio_out", t_before=(vad["t"] if vad else None)) if vad else None
+    creq = _last(answering_requests(ms), "llm_request", t_after=(prev["t"] if prev else None), t_before=t_reply)
+    if creq is not None:
+        req = creq
         usage = _first(ms, "llm_usage", t_after=req["t"])
         if usage is not None and usage.get("prompt_tokens"):
             out["context_tokens"], out["context_source"] = usage["prompt_tokens"], "usage"
@@ -99,10 +127,12 @@ def turn_stages(ms: List[dict], user_end: Optional[float], bot_start: Optional[f
 
 
 def context_calls(ms: List[dict]) -> List[dict]:
-    """Every LLM call in a trial with its context size (usage if reported, else the request's own figures)."""
+    """Every LLM call that answered a final transcript, with its context size (usage if reported, else the
+    request's own figures). Discarded early calls are left out (answering_requests)."""
     calls = []
+    keep = {id(m) for m in answering_requests(ms)}
     for i, m in enumerate(ms):
-        if m["stage"] != "llm_request":
+        if id(m) not in keep:
             continue
         nxt = next((x for x in ms[i + 1:] if x["stage"] == "llm_request"), None)
         usage = next((x for x in ms[i + 1:] if x["stage"] == "llm_usage" and (nxt is None or x["t"] < nxt["t"])), None)

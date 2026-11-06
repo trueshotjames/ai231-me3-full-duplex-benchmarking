@@ -163,19 +163,49 @@ class Probe:
                 return None
         return None
 
-    def _network(self):
-        """'ethernet' / 'wifi' from the interface of the default route (Linux), else None."""
-        txt = self._read("/proc/net/route") or ""
-        for line in txt.splitlines()[1:]:
+    @staticmethod
+    def _kind(iface: str) -> str:
+        if iface.startswith(("wl", "wlan")):
+            return "wifi"
+        if iface.startswith(("eth", "en")):
+            return "ethernet"
+        return iface
+
+    def _routes(self) -> list:
+        """(iface, dest, mask) from /proc/net/route (Linux; little-endian hex, as the kernel writes them)."""
+        out = []
+        for line in (self._read("/proc/net/route") or "").splitlines()[1:]:
             f = line.split()
-            if len(f) > 2 and f[1] == "00000000":
-                iface = f[0]
-                if iface.startswith(("wl", "wlan")):
-                    return "wifi"
-                if iface.startswith(("eth", "en")):
-                    return "ethernet"
-                return iface
+            try:
+                out.append((f[0], int(f[1], 16), int(f[7], 16)))
+            except (IndexError, ValueError):
+                pass
+        return out
+
+    def _network(self):
+        """'ethernet' / 'wifi' from the interface of the default route (Linux): the path to the internet / cloud APIs."""
+        for iface, dest, mask in self._routes():
+            if dest == 0 and mask == 0:
+                return self._kind(iface)
         return None
+
+    def network_to(self, ip: Optional[str]):
+        """'ethernet' / 'wifi' / 'same machine' for the route to `ip` (the fdbench machine), else None."""
+        if not ip:
+            return None
+        if ip.startswith("127.") or ip in ("::1", "localhost"):
+            return "same machine"
+        try:
+            import socket
+            import struct
+            addr = struct.unpack("<I", socket.inet_aton(ip))[0]
+        except (OSError, ValueError):
+            return None
+        best = None
+        for iface, dest, mask in self._routes():
+            if addr & mask == dest and (best is None or bin(mask).count("1") > bin(best[1]).count("1")):
+                best = (iface, mask)
+        return self._kind(best[0]) if best else None
 
     def hello(self) -> dict:
         model = (self._read("/proc/device-tree/model") or "").strip("\x00\n ") or None

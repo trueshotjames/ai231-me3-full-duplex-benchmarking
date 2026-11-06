@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT / "adapters"))
 
 from fdbench.marks import MarksStore  # noqa: E402
 from fdbench.score import wer  # noqa: E402
-from fdbench.score.stages import turn_stages  # noqa: E402
+from fdbench.score.stages import context_calls, turn_stages  # noqa: E402
 from fdbench import targets  # noqa: E402
 
 
@@ -50,6 +50,24 @@ def test_turn_stages_on_one_clock():
     assert abs(s["e2e_heard"] - 1.25) < 1e-6
     assert s["wer"]["wer"] == 0.0
     assert s["context_tokens"] == 812 and s["context_source"] == "usage"
+
+
+def test_early_llm_calls_count_only_when_the_turn_end_confirms_them():
+    # early call 1 is cancelled (the user kept talking), early call 2 is confirmed by the turn end and spoken
+    ms = [_m("vad_end", 503.0, 3.0), _m("llm_request", 503.05, 3.05, speculative=True, est_tokens=600, messages=3),
+          _m("llm_cancel", 503.1, 3.1), _m("llm_usage", 503.12, 3.12, prompt_tokens=650),
+          _m("llm_request", 503.2, 3.2, speculative=True, est_tokens=700, messages=3),
+          _m("asr_final", 503.3, 3.3, text="hello there"), _m("user_stopped", 503.31, 3.31),
+          _m("llm_usage", 503.5, 3.5, prompt_tokens=812), _m("llm_first_token", 503.4, 3.4),
+          _m("tts_request", 503.42, 3.42), _m("tts_first_audio", 503.6, 3.6), _m("audio_out", 503.7, 3.7)]
+    ms.sort(key=lambda m: m["t"])
+    calls = context_calls(ms)
+    assert [c["tokens"] for c in calls] == [812] and calls[0]["source"] == "usage"
+    s = turn_stages(ms, user_end=2.7, bot_start=3.75, ref_text="hello there")
+    assert s["context_tokens"] == 812 and s["context_messages"] == 3
+    assert abs(s["asr_final"] - 0.3) < 1e-6 and abs(s["e2e"] - 0.7) < 1e-6  # latency unchanged by early calls
+    # an early call with nothing after it (no turn end) answered nothing
+    assert context_calls([_m("llm_request", 1.0, 1.0, speculative=True, est_tokens=5)]) == []
 
 
 def test_turn_stages_without_marks_keeps_audio_e2e():
@@ -101,3 +119,21 @@ def test_sim_run_produces_deck_summary(tmp_path):
     assert (run_dir / "summary.md").read_text(encoding="utf-8").startswith("# Full-Duplex Voice Agent")
     assert (run_dir / "latency_chart.svg").exists() and (run_dir / "stage_latency.json").exists()
     assert "Wilson" not in (run_dir / "results.html").read_text(encoding="utf-8")
+
+
+def test_network_label_splits_cloud_and_benchmark_link(tmp_path):
+    from fdbench.probe import Probe
+    from fdbench.report import deck
+    (tmp_path / "proc/net").mkdir(parents=True)
+    # default route on wlan0 (internet), 192.168.50.0/24 on eth0 (the cable to the laptop)
+    (tmp_path / "proc/net/route").write_text(
+        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
+        "wlan0\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n"
+        "eth0\t0032A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n")
+    p = Probe(fs_root=str(tmp_path))
+    assert p._network() == "wifi"
+    assert p.network_to("192.168.50.1") == "ethernet"
+    assert p.network_to("8.8.8.8") == "wifi" and p.network_to("127.0.0.1") == "same machine"
+    out = {"session": {"link": {"rtt_ms": 1.2}}, "resources": {"hello": {"network": "wifi", "link_network": "ethernet"}},
+           "metrics": {}}
+    assert deck.build(out)["run_card"]["network"] == "cloud: Wi-Fi · benchmark link: Ethernet, 1 ms round trip"

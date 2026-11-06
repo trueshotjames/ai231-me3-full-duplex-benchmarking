@@ -29,7 +29,8 @@ your own MCP servers work too:
 |---|---|
 | `vad_end` | `VADUserStoppedSpeakingFrame` (fallback: `UserStoppedSpeakingFrame`) |
 | `asr_final` | `TranscriptionFrame` (its text is used for WER) |
-| `llm_request` | `LLMContextFrame` (messages and characters in the context) |
+| `llm_request` | `LLMContextFrame` (messages and characters in the context; `speculative=True` for an early call on a partial transcript) |
+| `llm_cancel` | `EagerEndOfTurnCancelFrame` (that early call was discarded) |
 | `llm_first_token` | first `LLMTextFrame` after `LLMFullResponseStartFrame` |
 | `llm_usage` | `MetricsFrame` with token usage (set `enable_usage_metrics=True` in `PipelineParams` for exact token counts) |
 | `tts_request` / `tts_first_audio` | `TTSStartedFrame` / first `TTSAudioRawFrame` after it |
@@ -58,6 +59,8 @@ from fdbench_marks import mark
 mark("vad_end")                          # your VAD decided the user finished
 mark("asr_final", text=transcript)       # final transcript ready
 mark("llm_request", prompt_tokens=n)     # LLM call starts; or messages=len(history)
+mark("llm_request", speculative=True, prompt_tokens=n)  # an early call before the turn has ended ...
+mark("llm_cancel")                       # ... that you then discarded (a confirmed one needs no extra mark)
 mark("llm_first_token")
 mark("tts_request")
 mark("tts_first_audio")
@@ -71,8 +74,8 @@ mark("tool_start", name="get_weather"); mark("tool_end", name="get_weather")
 it), and fdbench listens on UDP 8792 (`--marks-port`). With the assistant on a Pi, allow UDP 8792 in the laptop's
 firewall too (`scripts/open_firewall_windows.ps1` does both ports) if marks come from MCP servers.
 
-Stage names: `vad_start`, `vad_end`, `user_stopped`, `asr_partial`, `asr_final`, `llm_request`, `llm_first_token`,
-`llm_usage`, `tts_request`, `tts_first_audio`, `audio_out`, `interrupted`, `bot_stopped`, `tool_start`, `tool_end`
+Stage names: `vad_start`, `vad_end`, `user_stopped`, `asr_partial`, `asr_final`, `llm_request`, `llm_cancel`,
+`llm_first_token`, `llm_usage`, `tts_request`, `tts_first_audio`, `audio_out`, `interrupted`, `bot_stopped`, `tool_start`, `tool_end`
 (`fdbench_marks.STAGES` describes each).
 
 ## Model versions for the results card

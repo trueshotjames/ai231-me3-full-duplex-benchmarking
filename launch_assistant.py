@@ -146,7 +146,12 @@ async def stats_loop(ws, probe, hz: float) -> None:
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fdbench-stats")
     period = 1.0 / max(0.1, hz)
     try:
-        await ws.send(json.dumps({"event": "stats_hello", "hello": probe.hello()}))
+        hello = probe.hello()
+        try:  # which interface carries the benchmark link (the default route is the path to the cloud APIs)
+            hello["link_network"] = probe.network_to(ws.remote_address[0])
+        except Exception:  # noqa: BLE001
+            pass
+        await ws.send(json.dumps({"event": "stats_hello", "hello": hello}))
         nxt = loop.time()
         while True:
             sample = await loop.run_in_executor(pool, probe.sample)  # file reads off the event loop

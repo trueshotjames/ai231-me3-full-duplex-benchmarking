@@ -7,7 +7,9 @@ servers, because it only looks at frame types:
     VADUserStartedSpeakingFrame / VADUserStoppedSpeakingFrame  -> vad_start / vad_end
     UserStoppedSpeakingFrame                                   -> user_stopped
     InterimTranscriptionFrame / TranscriptionFrame             -> asr_partial / asr_final (text)
-    LLMContextFrame (or OpenAILLMContextFrame)                 -> llm_request (messages, chars, est_tokens)
+    LLMContextFrame (or OpenAILLMContextFrame)                 -> llm_request (messages, chars, est_tokens;
+                                                                  speculative=True for an early call on a partial turn)
+    EagerEndOfTurnCancelFrame                                  -> llm_cancel (that early call was discarded)
     first LLMTextFrame after LLMFullResponseStartFrame         -> llm_first_token
     MetricsFrame with LLM usage                                -> llm_usage (prompt_tokens, completion_tokens)
     TTSStartedFrame / first TTSAudioRawFrame after it          -> tts_request / tts_first_audio
@@ -38,7 +40,7 @@ def _frame_types():
              "InterimTranscriptionFrame", "TranscriptionFrame", "LLMContextFrame", "OpenAILLMContextFrame",
              "LLMFullResponseStartFrame", "LLMTextFrame", "MetricsFrame", "TTSStartedFrame", "TTSAudioRawFrame",
              "BotStartedSpeakingFrame", "BotStoppedSpeakingFrame", "InterruptionFrame", "StartInterruptionFrame",
-             "FunctionCallInProgressFrame", "FunctionCallResultFrame"]
+             "FunctionCallInProgressFrame", "FunctionCallResultFrame", "EagerEndOfTurnCancelFrame"]
     out = {n: getattr(F, n, None) for n in names}
     if out["OpenAILLMContextFrame"] is None:
         try:
@@ -131,9 +133,11 @@ class FdbenchObserver(BaseObserver):
         elif self._is(f, "TranscriptionFrame"):
             mark("asr_final", text=getattr(f, "text", ""))
         elif self._is(f, "LLMContextFrame", "OpenAILLMContextFrame"):
-            if getattr(f, "speculation", False):
-                return
-            mark("llm_request", **_context_size(getattr(f, "context", None)))
+            # an early call on a partial turn is marked too; the scorer counts it only if the turn end confirms it
+            extra = {"speculative": True} if getattr(f, "speculation", False) else {}
+            mark("llm_request", **extra, **_context_size(getattr(f, "context", None)))
+        elif self._is(f, "EagerEndOfTurnCancelFrame"):
+            mark("llm_cancel")
         elif self._is(f, "LLMFullResponseStartFrame"):
             self._llm_open = True
         elif self._is(f, "TTSStartedFrame"):
