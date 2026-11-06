@@ -223,6 +223,8 @@ def check(entry, project, url) -> int:
         except Exception as e:  # noqa: BLE001
             ok = False
             print(f"audio:    audio_rates() failed: {e}")
+        if hasattr(entry, "safety"):
+            print(f"safety:   {entry.safety()}")
     try:
         from fdbench.probe import Probe
         caps = Probe(root_pid=os.getpid()).capabilities()

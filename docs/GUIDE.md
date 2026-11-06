@@ -81,6 +81,9 @@ Your assistant's own venv must have Pipecat with WebSocket support: `PROJ_PY -m 
 
 **A. The course assistant** (`PROJECT/assistant/main.py` with `class Assistant` and `build(transport=...)`):
 nothing to do; `adapters/entry_course.py` is used automatically. Keep `AUDIO_IN_SAMPLE_RATE=16000` in her `.env`.
+It sets `BENCHMARK_MODE=1` so test clips cannot reach her tools, delegation, memory or audio devices. If her code has
+no such mode, the launcher stops with a message; add one, or set `FDBENCH_ALLOW_TOOLS=1` in `fd-benchmark/.env` to run
+with her tools on.
 
 **B. Any other Pipecat assistant:**
 

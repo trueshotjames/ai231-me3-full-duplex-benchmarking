@@ -107,6 +107,7 @@ samples the machine fdbench runs on, without process labels.
 | Overlap timing (v1 interruption, v1.5) | fixed time in the file | 1.5 s after the assistant starts speaking; skipped (Unknown) if it never starts | needed for live systems |
 | Speech-to-text | Parakeet-TDT 0.6B (CrisperWhisper in v1.0) | faster-whisper small int8 (`--asr-model`) | slightly different word timings and counts |
 | Judge | GPT-4o (gpt-4-turbo in the interruption script) | any provider; GPT-4o marked paper-comparable | labels may shift with other judges |
+| Tools | offered to the model under test where it had them | course assistant runs with BENCHMARK_MODE: no tools, delegation, memory or audio devices | test clips cannot act on the real world; latencies have no tool time, and requests that need a tool get a spoken refusal |
 | Fresh session per clip | yes | `--reset-cmd` or 6 s silence | context may carry over |
 | Sample size | all clips | 30 per group available, rounds decide how many | wider intervals |
 | Candor turn-taking clips | full clip incl. silence | cut 0.3 s after the turn end | none |

@@ -3,13 +3,27 @@
 
 To benchmark a different assistant, copy adapters/assistant_entry_template.py to fd-benchmark/assistant_entry.py
 and fill it in (docs/GUIDE.md, step 4B).
+
+Benchmark mode: the test clips must never reach real tools. This entry sets BENCHMARK_MODE=1, and it refuses to start
+an assistant that does not honour it, unless FDBENCH_ALLOW_TOOLS=1 is set in fd-benchmark/.env.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
+os.environ["BENCHMARK_MODE"] = "1"     # before assistant.config is imported
+
 PROJECT_MARKER = "assistant/main.py"   # a file that exists in the project folder
+
+
+def safety() -> str:
+    """One line for `launch_assistant.py --check`: are her tools off?"""
+    from assistant.config import load
+    if getattr(load(), "benchmark_mode", False):
+        return "tools, delegation, memory and audio devices off (BENCHMARK_MODE)"
+    return "NOT SUPPORTED by this assistant: her real tools would run"
 
 
 def audio_rates() -> tuple[int, int]:
@@ -24,6 +38,9 @@ async def build(transport, log_dir: Path):
     from assistant.main import Assistant, setup_logging
 
     cfg = load()
+    if not getattr(cfg, "benchmark_mode", False) and os.environ.get("FDBENCH_ALLOW_TOOLS") != "1":
+        sys.exit("this assistant has no BENCHMARK_MODE, so test clips could reach her real tools. Update it, or set "
+                 "FDBENCH_ALLOW_TOOLS=1 in fd-benchmark/.env to run with tools on.")
     setup_logging(cfg.log_level)
     problems = cfg.validate()
     for p in problems:
