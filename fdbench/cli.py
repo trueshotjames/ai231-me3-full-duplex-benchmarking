@@ -29,6 +29,20 @@ def _add_common(p):
                    help="direct feed: local = fdbench starts her on this machine; remote = she runs on another machine (Pi)")
     p.add_argument("--project", default=None, help="the assistant's project folder (default: the folder that holds fd-benchmark)")
     p.add_argument("--assistant-cmd", default=None, help="custom command fdbench runs to start her (local direct feed)")
+    p.add_argument("--phrases", type=int, default=None,
+                   help="stage-latency test: number of phrases (default 10; 0 skips it)")
+    p.add_argument("--runs", type=int, default=None, help="stage-latency test: runs over the phrases (default 3)")
+    p.add_argument("--phrases-dir", default=None,
+                   help="your own phrases for the stage-latency test: audio files with a same-name .txt transcript")
+    p.add_argument("--targets", default=None,
+                   help="summary targets, e.g. e2e=1.0,asr_final=0.3,llm_ttft=0.4,tts_ttfb=0.3,barge_in=0.5,wer=10%% "
+                        "(defaults: e2e 1.5 s, asr_final 0.5, llm_ttft 0.6, tts_ttfb 0.5, barge_in 0.8, wer 15%%)")
+    p.add_argument("--cooling", default=None, help="for the results card, e.g. 'heatsink + fan'")
+    p.add_argument("--models", default=None,
+                   help="model versions for the results card when the launcher cannot report them, "
+                        "e.g. 'ASR=Deepgram nova-3,LLM=claude-haiku-5-5,TTS=Cartesia sonic-2'")
+    p.add_argument("--marks-port", type=int, default=8792,
+                   help="UDP port for stage marks from processes outside the benchmark socket (0 = off)")
     p.add_argument("--host-stats", action="store_true",
                    help="sample this machine's CPU/RAM/temperature during the run (for --sim and cables; with the "
                         "direct feed the launcher sends her machine's stats by itself)")
@@ -69,7 +83,7 @@ def build_parser():
     r = sub.add_parser("run", help="run the benchmark without the wizard (all options on the command line)")
     _add_common(r); _add_judge(r); _add_score(r)
     r.add_argument("--student", required=True)
-    r.add_argument("--rounds", type=int, default=1)
+    r.add_argument("--rounds", type=int, default=1, help="Full-Duplex-Bench rounds (0 = stage-latency test only)")
     r.add_argument("--seed", type=int, default=None)
     r.add_argument("--to-bot", default=None); r.add_argument("--from-bot", default=None)
     r.add_argument("--device-sr", type=int, default=None, help="device sample rate (default: device default)")
@@ -83,6 +97,8 @@ def build_parser():
 
     s = sub.add_parser("score", help="score (or re-score) a run folder")
     s.add_argument("run_dir"); _add_judge(s); _add_score(s)
+    s.add_argument("--targets", default=None, help="change the summary targets when re-scoring (see run --help)")
+    s.add_argument("--cooling", default=None); s.add_argument("--models", default=None)
 
     rp = sub.add_parser("report", help="print the results of a run folder")
     rp.add_argument("run_dir")
@@ -105,7 +121,32 @@ def build_parser():
 def _dataset(args):
     from .datasets import Dataset
     root = Path(args.datasets) if getattr(args, "datasets", None) else DATASETS_DIR
-    return Dataset(root)
+    pd = getattr(args, "phrases_dir", None)
+    return Dataset(root, phrases_dir=(Path(pd) if pd else None))
+
+
+def _parse_models(text) -> dict:
+    out = {}
+    for part in (text or "").split(","):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            if k.strip() and v.strip():
+                out[k.strip()] = v.strip()
+    return out
+
+
+def _session_extras(args, session: dict) -> None:
+    """Targets, cooling and model versions for the summary (course template) into session.json."""
+    from .targets import load as load_targets
+    try:
+        session["targets"] = load_targets(getattr(args, "targets", None), session.get("targets"))
+    except ValueError as e:
+        console.print(f"[red]--targets: {e}[/red]")
+        sys.exit(2)
+    if getattr(args, "cooling", None):
+        session["cooling"] = args.cooling
+    if getattr(args, "models", None):
+        session["models"] = {**(session.get("models") or {}), **_parse_models(args.models)}
 
 
 def _judge(args, from_wizard=None):
@@ -352,8 +393,10 @@ def cmd_check(args, judge=None):
 
 
 def _start_run(args, student: str, rounds: int, judge, pf, seed=None, resume=None):
-    from .queue import estimate_round_seconds
+    from .queue import DEFAULT_PHRASES, DEFAULT_RUNS, estimate_round_seconds, estimate_stage_seconds
     from .runner import Runner
+    phrases = DEFAULT_PHRASES if getattr(args, "phrases", None) is None else max(0, args.phrases)
+    runs = DEFAULT_RUNS if getattr(args, "runs", None) is None else max(0, args.runs)
     ds = _dataset(args)
     if resume:
         run_dir = Path(resume)
@@ -367,13 +410,23 @@ def _start_run(args, student: str, rounds: int, judge, pf, seed=None, resume=Non
                    "fdbench": __version__, "rig": ("sim:" + args.sim_profile if args.sim else _mode(args)),
                    "judge": (judge.describe() if judge else None), "machine": pf.info,
                    "devices": pf.to_json().get("devices"), "warnings_overridden": [c.text for c in pf.warnings],
-                   "dataset": str(ds.root), "dataset_counts": ds.counts()}
+                   "dataset": str(ds.root), "dataset_counts": ds.counts(),
+                   "stage_test": {"phrases": phrases, "runs": runs,
+                                  "phrases_dir": (str(ds.phrases_dir) if ds.phrases_dir else None)}}
+        _session_extras(args, session)
         write_json(run_dir / "session.json", session)
         write_json(run_dir / "check.json", pf.to_json())
     mode = _mode(args)
     rig = (_sim_rig(args.sim_profile) if mode == "sim" else _direct_rig(args, run_dir) if mode == "direct"
            else _audio_rig(args, pf))
     session["where"] = getattr(args, "where", None) or "local"
+    udp = None
+    if mode != "sim":
+        from .marks import MarksStore, start_udp
+        if getattr(rig, "marks", None) is None:
+            rig.marks = MarksStore()
+        host = "0.0.0.0" if session["where"] == "remote" or mode == "cables" else "127.0.0.1"
+        udp = start_udp(rig.marks, getattr(args, "marks_port", 8792), host=host)
     host_sampler = None
     if mode != "direct" and getattr(args, "host_stats", False):
         from .stats import HostSampler, StatsStore
@@ -381,20 +434,24 @@ def _start_run(args, student: str, rounds: int, judge, pf, seed=None, resume=Non
         host_sampler = HostSampler(rig.stats).start()
     runner = Runner(run_dir, ds, rig, session, rounds, seed or session.get("seed", 0),
                     live=not getattr(args, "no_live", False), gap=(0.0 if args.sim else getattr(args, "gap", 6.0)),
-                    reset_cmd=getattr(args, "reset_cmd", None), realtime_gap=not args.sim)
+                    reset_cmd=getattr(args, "reset_cmd", None), realtime_gap=not args.sim, phrases=phrases, runs=runs)
     if not runner.plan.items:
         console.print("[red]No trials to run: the datasets folder has no test clips for the benchmark groups. "
                       "Get it with python tools/fetch_datasets.py --force (see docs/GUIDE.md step 3).[/red]")
         rig.close()
         sys.exit(2)
-    est = estimate_round_seconds(ds) * rounds
-    console.print(f"\nRun folder: {run_dir}\nPlanned: {len(runner.plan.items)} trials in {rounds} round(s), "
+    est = estimate_round_seconds(ds) * rounds + estimate_stage_seconds(runner.plan.phrases, runner.plan.runs)
+    stage_txt = (f"stage latency {runner.plan.phrases} phrases × {runner.plan.runs} runs, then " if runner.plan.phrases
+                 else "")
+    console.print(f"\nRun folder: {run_dir}\nPlanned: {len(runner.plan.items)} trials: {stage_txt}{rounds} round(s), "
                   f"about {fmt_dur(est)}. Press q to stop early; everything done so far is kept and scored.\n")
     try:
         outcome = runner.run()
     finally:
         if host_sampler is not None:
             host_sampler.stop()
+        if udp is not None:
+            udp.stop()
         rig.close()
         if getattr(rig, "launched", None) is not None:
             try:
@@ -406,6 +463,12 @@ def _start_run(args, student: str, rounds: int, judge, pf, seed=None, resume=Non
     stats = getattr(rig, "stats", None)
     if stats is not None:
         session["machine_stats"] = {"hello": stats.hello, "samples": len(stats.samples), "clock_offset": stats.offset}
+    marks = getattr(rig, "marks", None)
+    if marks is not None:
+        ms = marks.summary()
+        session["marks"] = {k: v for k, v in ms.items() if k != "models"}
+        if ms.get("models"):
+            session["models"] = {**ms["models"], **(session.get("models") or {})}
     session["finished"] = now_iso()
     session["outcome"] = outcome
     write_json(run_dir / "session.json", session)
@@ -420,7 +483,12 @@ def cmd_wizard(args):
     except FileNotFoundError as e:
         console.print(f"[red]{e}[/red]"); return 2
     answers = run_wizard(estimate_round_seconds(ds), ask_connect=not args.sim and not args.connect,
-                         ask_where=not args.sim and args.connect != "cables" and not args.where)
+                         ask_where=not args.sim and args.connect != "cables" and not args.where,
+                         ask_targets=not args.targets, ask_cooling=not args.cooling)
+    if answers.get("targets") and not args.targets:
+        args.targets = answers["targets"]
+    if answers.get("cooling") and not args.cooling:
+        args.cooling = answers["cooling"]
     if answers.get("connect"):
         args.connect = answers["connect"]
     if answers.get("where"):
@@ -452,6 +520,9 @@ def cmd_run(args):
 def cmd_score(args):
     run_dir = Path(args.run_dir)
     session = read_json(run_dir / "session.json") or {"student": run_dir.parent.name, "run_id": run_dir.name}
+    if args.targets or args.cooling or args.models:
+        _session_extras(args, session)
+        write_json(run_dir / "session.json", session)
     judge = _judge(args)
     _score_and_report(run_dir, judge, args, session)
     return 0

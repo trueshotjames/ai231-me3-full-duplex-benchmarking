@@ -13,9 +13,7 @@ console = Console()
 def _pct(r: dict) -> str:
     if not r or r.get("value") is None:
         return "—"
-    lo, hi = r.get("ci95", [None, None])
-    ci = f"  [{lo*100:.0f}–{hi*100:.0f}]" if lo is not None else ""
-    return f"{r['value']*100:.0f}%  ({r['k']}/{r['n']}){ci}"
+    return f"{r['value']*100:.0f}%  ({r['k']}/{r['n']})"
 
 
 def _lat(r: dict) -> str:
@@ -25,8 +23,35 @@ def _lat(r: dict) -> str:
     return s
 
 
+def print_deck(summary: dict, session: dict) -> None:
+    """The course template's table first: what goes on the slides."""
+    from .deck import STATUS_TEXT, _v, build
+    from ..targets import fmt
+    d = summary.get("deck_summary") or build({**summary, "session": session})
+    t = Table(show_header=True, header_style="bold", title="Deck summary · template §5 (Evaluation & Benchmark)",
+              title_justify="left", expand=True)
+    for col in ("metric", "definition", "target", "mean", "p95", "n", ""):
+        t.add_column(col)
+    style = {"met": "green", "p95_over": "yellow", "over": "red", "na": "dim"}
+    for r in d["table"]:
+        st = r["status"]
+        t.add_row(r["metric"], r["definition"] + (f"\n[dim]{r['note']}[/dim]" if r.get("note") else ""),
+                  f"< {fmt(r['key'], r['target'])}", _v(r, "mean"), _v(r, "p95"), str(r["n"]),
+                  f"[{style[st]}]{STATUS_TEXT[st]}[/{style[st]}]")
+    console.print(t)
+    rc = d["run_card"]
+    console.print(f"[dim]{d['method']['phrases']} phrases × {d['method']['runs']} runs · {rc.get('device') or '?'} · "
+                  f"cooling: {rc.get('cooling')} · network: {rc.get('network') or '?'} · models: "
+                  f"{', '.join(f'{k} {v}' for k, v in rc['models'].items()) or 'not reported'}[/dim]")
+    c = d.get("context") or {}
+    if c.get("n"):
+        console.print(f"[dim]context size per LLM call: median {c['tokens_median']:.0f} tokens, max {c['tokens_max']:.0f}, "
+                      f"first → last {c['tokens_first']:.0f} → {c['tokens_last']:.0f}[/dim]")
+
+
 def print_results(summary: dict, session: dict) -> None:
     m = summary["metrics"]
+    print_deck(summary, session)
     console.rule(f"[bold]Results · {session.get('student', '?')} · {summary['trials']} trials")
     t = Table(show_header=True, header_style="bold dim", expand=True)
     t.add_column("metric", ratio=3)

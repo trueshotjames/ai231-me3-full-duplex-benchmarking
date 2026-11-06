@@ -37,6 +37,8 @@ class Clip:
             return f"{self.id} · Q: \"{_short(m.get('context_text'), 34)}\" · cut-in: \"{_short(m.get('interrupt_text'), 34)}\""
         if g == "false_tt":
             return f"{self.id} · {m.get('kind_label', m.get('kind'))} · {self.duration:.1f} s · {m.get('level_db', 0):+.0f} dB"
+        if g == "stage_latency":
+            return f"{self.id} · \"{_short(m.get('text'), 60)}\""
         if g.startswith("v15_"):
             ov = m.get("overlap_text") or m.get("kind_label") or "overlap"
             return f"{self.id} · \"{_short(m.get('current_turn_text'), 30)}\" · over her: \"{_short(ov, 28)}\" {m.get('overlap_duration', 0):.1f} s"
@@ -63,6 +65,8 @@ class Clip:
             if m.get("text"):
                 lines.append(("words", q(m["text"])))
             return (f"{self.duration:.1f} s · {m.get('kind_label', m.get('kind'))} · {m.get('level_db', 0):+.0f} dB", lines)
+        if g == "stage_latency":
+            return (f"{self.duration:.1f} s phrase · stage timing + WER", [("user", q(m.get("text")))])
         if g.startswith("v15_"):
             if variant == "clean":
                 return (f"{self.duration:.1f} s turn · clean twin, no overlap (reference for the judge)",
@@ -79,8 +83,45 @@ def _short(s, n):
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+AUDIO_EXT = (".wav", ".flac", ".ogg", ".mp3")
+
+
+def stage_phrases(groups: Dict[str, List[Clip]]) -> List[Clip]:
+    """Phrases for the stage-latency test: the clean user turns that come with a reference transcript
+    (v1 interruption questions and v1.5 user turns), one clip per distinct text."""
+    out, seen = [], set()
+    sources = [("v1_interrupt", "context")] + [(g, "turn") for g in
+                                               ("v15_interruption", "v15_backchannel", "v15_talking_to_other", "v15_background")]
+    for g, role in sources:
+        for c in groups.get(g, []):
+            text = (c.meta.get("context_text") or "").strip()
+            key = (text.lower(), c.files.get(role))
+            if not text or key in seen or role not in c.files:
+                continue
+            seen.add(key)
+            out.append(Clip(f"phrase_{c.id}", "stage_latency", {"main": c.files[role]}, c.duration,
+                            {"text": text, "source": c.id}, c.root))
+    return out
+
+
+def phrases_from_dir(folder: Path) -> List[Clip]:
+    """Your own phrases: audio files with a .txt next to each (same name) holding what is said."""
+    from .util import load_audio
+    from . import SR
+    out = []
+    for p in sorted(Path(folder).iterdir()):
+        if p.suffix.lower() not in AUDIO_EXT:
+            continue
+        txt = p.with_suffix(".txt")
+        text = txt.read_text(encoding="utf-8").strip() if txt.exists() else ""
+        dur = len(load_audio(p)) / SR
+        out.append(Clip(f"own_{p.stem}", "stage_latency", {"main": p.name}, dur, {"text": text, "source": p.name},
+                        Path(folder)))
+    return out
+
+
 class Dataset:
-    def __init__(self, root: Path | None = None):
+    def __init__(self, root: Path | None = None, phrases_dir: Path | None = None):
         self.root = Path(root or DATASETS_DIR)
         self.manifest = read_json(self.root / "manifest.json")
         if not self.manifest:
@@ -91,12 +132,17 @@ class Dataset:
         for gkey, g in self.manifest["groups"].items():
             self.groups[gkey] = [Clip(c["id"], gkey, c["files"], c["duration"], c.get("meta", {}), self.root)
                                  for c in g["clips"]]
+        self.phrases_dir = Path(phrases_dir) if phrases_dir else None
+        self.groups["stage_latency"] = phrases_from_dir(self.phrases_dir) if self.phrases_dir else stage_phrases(self.groups)
 
     def clips(self, group: str) -> List[Clip]:
         return self.groups.get(group, [])
 
     def counts(self) -> Dict[str, int]:
         return {g: len(c) for g, c in self.groups.items()}
+
+    def get(self, group: str, clip_id: str) -> Clip:
+        return {c.id: c for c in self.clips(group)}[clip_id]
 
     def verify_checksums(self, max_files: int | None = None) -> List[str]:
         """Return a list of problems (missing or changed files)."""

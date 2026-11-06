@@ -7,6 +7,7 @@ to it instead of opening her audio devices (see adapters/pipecat_fdbench.py):
   assistant -> fdbench   binary messages: mono int16 PCM at `out_sr` (default 16 kHz), her TTS output
                          text message {"event": "clear"}: she was interrupted, drop what is still queued
                          text messages {"event": "stats_hello"|"stats"}: machine stats from the launcher (stats.py)
+                         text messages {"event": "mark"|"describe"}: stage marks and model versions (marks.py)
 
 What she sends goes into a playout buffer that fdbench drains in real time, like a speaker would. A
 "clear" empties it, like a speaker that stops playing. One clock thread ticks every chunk: it sends the
@@ -24,6 +25,7 @@ import numpy as np
 
 from .. import SR
 from ..util import resample
+from ..marks import MarksStore
 from ..stats import StatsStore
 from .base import RigBase, Recording, TrialScript
 
@@ -79,6 +81,7 @@ class DirectRig(RigBase):
         self.rtt_ms: Optional[float] = None
         self.launched = None
         self.stats = StatsStore(source="remote")
+        self.marks = MarksStore()
 
     @property
     def url(self) -> str:
@@ -159,6 +162,8 @@ class DirectRig(RigBase):
                         self.playout.clear()
                     elif ev in ("stats", "stats_hello"):
                         self.stats.handle_message(msg)
+                    elif ev in ("mark", "describe"):
+                        self.marks.handle_message(msg, src="ws")
         except Exception:  # noqa: BLE001  (connection dropped)
             pass
         finally:

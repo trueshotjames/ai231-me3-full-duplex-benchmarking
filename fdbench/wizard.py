@@ -1,4 +1,4 @@
-"""The three questions: student number, rounds, judge. Lettered/numbered menus, remembered defaults."""
+"""The questions: student number, rounds, connection, judge, summary targets, cooling. Lettered/numbered menus, remembered defaults."""
 from __future__ import annotations
 
 import os
@@ -113,6 +113,37 @@ def ask_where(default: Optional[str]) -> str:
     return "remote" if ch == "b" else "local"
 
 
+def ask_targets(saved: Optional[str]) -> Optional[str]:
+    """Targets for the summary table. Returns a --targets string, or None for the defaults (targets.json applies)."""
+    from .targets import DEFAULTS, TARGETS, fmt, load, parse
+    cur = load(saved)
+    console.print("\nTargets for the summary table (course template, section 5):")
+    console.print("  " + " · ".join(f"{TARGETS[k][0]} {fmt(k, v)}" for k, v in cur.items()))
+    ch = Prompt.ask("  \\[Enter] keep  \\[e] edit  \\[d] defaults", default="").strip().lower()
+    if ch == "d":
+        return ",".join(f"{k}={v}" for k, v in DEFAULTS.items())
+    if ch != "e":
+        return saved
+    parts = []
+    for k, v in cur.items():
+        unit = "%" if TARGETS[k][2] == "ratio" else "s"
+        shown = f"{v * 100:g}" if unit == "%" else f"{v:g}"
+        while True:
+            ans = Prompt.ask(f"  {TARGETS[k][0]} ({unit})", default=shown).strip()
+            try:
+                parts.append(f"{k}={ans}{'%' if unit == '%' and not ans.endswith('%') else ''}")
+                parse(parts[-1])
+                break
+            except ValueError:
+                parts.pop()
+                console.print("  [red]a number, please[/red]")
+    return ",".join(parts)
+
+
+def ask_cooling(default: Optional[str]) -> str:
+    return Prompt.ask("\nCooling, for the results card (e.g. heatsink + fan, none)", default=default or "not stated").strip()
+
+
 def run_wizard(round_seconds: float, ask_connect: bool = True, ask_where_q: bool = True, **kw) -> dict:
     ask_where_q = kw.get("ask_where", ask_where_q)
     last = load_last()
@@ -122,9 +153,12 @@ def run_wizard(round_seconds: float, ask_connect: bool = True, ask_where_q: bool
     connect = ask_connection(last.get("connect")) if ask_connect else None
     where = ask_where(last.get("where")) if (ask_where_q and connect != "cables") else None
     judge = ask_judge(last.get("judge_provider"), last.get("judge_model"))
+    targets = ask_targets(last.get("targets")) if kw.get("ask_targets", True) else None
+    cooling = ask_cooling(last.get("cooling")) if kw.get("ask_cooling", True) else None
     save_last(student=student, rounds=rounds, connect=connect, where=where, judge_provider=(judge.provider if judge else "none"),
-              judge_model=(judge.model if judge else None))
-    return {"student": student, "rounds": rounds, "connect": connect, "where": where, "judge": judge}
+              judge_model=(judge.model if judge else None), targets=targets, cooling=cooling)
+    return {"student": student, "rounds": rounds, "connect": connect, "where": where, "judge": judge,
+            "targets": targets, "cooling": cooling}
 
 
 def confirm_proceed(n_warnings: int) -> bool:

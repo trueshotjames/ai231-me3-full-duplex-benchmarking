@@ -46,12 +46,15 @@ GROUPS: Dict[str, Group] = {g.key: g for g in [
     Group("v15_backchannel", "v1.5 backchannel", "v1.5", 1, "keep talking (Resume)", "Resume higher"),
     Group("v15_talking_to_other", "v1.5 talking to others", "v1.5", 1, "keep talking (Resume)", "Resume higher"),
     Group("v15_background", "v1.5 background speech", "v1.5", 1, "keep talking (Resume)", "Resume higher"),
+    # course template (machine exercise, section 5): N phrases x M runs, outside the rounds (queue.build_plan)
+    Group("stage_latency", "stage latency (course)", "course", 0, "answer the phrase", "latency lower"),
 ]}
 for _g in GROUPS.values():
     if _g.key.startswith("v15_"):
         _g.paired = True
 
 GROUP_ORDER = list(GROUPS.keys())
+ROUND_GROUPS = [g for g in GROUP_ORDER if GROUPS[g].per_round > 0]
 KIND_LABELS = {"side_talk": "side talk", "tv_radio": "TV / radio", "background": "background speech", "noise": "noise"}
 
 
@@ -96,6 +99,10 @@ def make_script(plan: TrialPlan, on_event=None) -> TrialScript:
         return TrialScript(play_first=ctx, overlap=inter, overlap_after_bot_start=OVERLAP_AFTER_BOT_START,
                            overlap_fallback_t=None, record_after=RECORD_AFTER, end_on_silence=SETTLE_SILENCE,
                            max_duration=len(ctx) / SR + 45, on_event=on_event, tag="interrupt")
+    if g == "stage_latency":
+        a = c.audio("main")
+        return TrialScript(play_first=a, record_after=RECORD_AFTER, end_on_silence=SETTLE_SILENCE,
+                           max_duration=len(a) / SR + 30, on_event=on_event, tag="turn", ref_text=c.meta.get("text", ""))
     if g.startswith("v15_"):
         turn = c.audio("turn")
         if plan.variant == "clean":
@@ -235,6 +242,14 @@ def provisional(plan: TrialPlan, rec: Recording) -> dict:
                                              + " · content: judge", None)
             else:
                 out["verdict"], out["ok"] = "✗ stopped, silent", False
+    elif g == "stage_latency":
+        useg = user_segments(rec)
+        user_end = useg[-1][1] if useg else clip_end
+        tor, start, dur = took_turn(bseg, (user_end, clip_end + RECORD_AFTER))
+        lat = max(0.0, start - user_end) if start is not None else None
+        out.update(tor=tor, first_start=start, spoke_s=dur, user_end=user_end, latency=lat,
+                   actual=("no reply" if start is None else f"replied {lat:.2f} s after speech end"),
+                   verdict=(f"✓ {lat:.2f} s" if start is not None else "✗ no reply"), ok=start is not None)
     else:  # v1.5 clean twin
         tor, start, dur = took_turn(bseg, (clip_end, clip_end + RECORD_AFTER))
         out.update(tor=tor, first_start=start, spoke_s=dur,

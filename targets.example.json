@@ -1,0 +1,8 @@
+{
+  "e2e": 1.5,
+  "asr_final": 0.5,
+  "llm_ttft": 0.6,
+  "tts_ttfb": 0.5,
+  "barge_in": 0.8,
+  "wer": 0.15
+}

@@ -45,6 +45,7 @@ class TrialScript:
     max_duration: float = 60.0
     on_event: Optional[Callable[[str, float], None]] = None  # live notifications (bot_start, bot_end, play...)
     tag: str = ""  # what kind of trial this is; only the simulated assistant looks at it
+    ref_text: str = ""  # what the user says (stage-latency phrases); only the simulated assistant looks at it
 
 
 @dataclass
@@ -56,6 +57,7 @@ class Recording:
     bot_ends: List[float] = field(default_factory=list)
     duration: float = 0.0
     notes: dict = field(default_factory=dict)
+    mono0: Optional[float] = None  # this machine's monotonic time at trial t=0 (to place stage marks)
 
     def play_window(self, name: str):
         for e in self.events:
@@ -97,6 +99,7 @@ class RigBase:
             self.overlap_fired = False
             self.last_play_end = 0.0
             self.done = threading.Event()
+            self.mono0: Optional[float] = None
             self.lock = threading.Lock()
             self.vad = LiveVAD(on_start=self._bot_start, on_end=self._bot_end)
             self.schedule("first", script.play_first, 0)
@@ -137,6 +140,9 @@ class RigBase:
             """Mix of everything scheduled for the next n samples. Advances the clock by n."""
             out = np.zeros(n, dtype=np.float32)
             start = self.pos
+            if self.mono0 is None:
+                import time
+                self.mono0 = time.monotonic() - start / SR
             with self.lock:
                 for item in self.queue:
                     at, name, audio, off = item
@@ -182,4 +188,4 @@ class RigBase:
             heard = np.concatenate(self.heard_chunks) if self.heard_chunks else np.zeros(0, np.float32)
             n = min(len(played), len(heard))
             return Recording(played=played[:n], heard=heard[:n], events=self.events, bot_starts=self.bot_starts,
-                             bot_ends=self.bot_ends, duration=n / SR)
+                             bot_ends=self.bot_ends, duration=n / SR, mono0=self.mono0)

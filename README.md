@@ -22,14 +22,16 @@ Step-by-step: **[docs/GUIDE.md](docs/GUIDE.md)**, laptop and Raspberry Pi togeth
 2. **Datasets** (once, on the laptop, under a minute): `python tools/fetch_datasets.py` downloads the ready-built
    set (~30 MB) from the GitHub Release. They stay on the laptop; a Pi never needs them with direct feed.
 3. **Connect your assistant.** Course assistant: nothing to write. Any other Pipecat assistant: fill in
-   `assistant_entry.py` from `adapters/assistant_entry_template.py`. Either way, `PROJECT_PYTHON launch_assistant.py
+   `assistant_entry.py` from `adapters/assistant_entry_template.py`. Stage timings are picked up from any Pipecat
+   pipeline automatically; other harnesses add one `mark()` call per stage (docs/STAGES.md). Either way, `PROJECT_PYTHON launch_assistant.py
    --check` must print READY (docs/GUIDE.md step 4). On a laptop fdbench then starts her itself; on a Pi run
    `launch_assistant.py --url ws://LAPTOP-IP:8791` there (steps 8–12). Cables: see docs/SETUP.md.
 4. **Run** `python -m fdbench`. It asks for your student number, how many rounds, and which LLM judge (if any),
    runs a 15-second pre-flight, then benchmarks. One round plays every test once (about 6–7 min).
    Start with **1 round** to check that everything works. Press `q` to stop early; everything done is kept.
 5. **Results** appear in the terminal and are saved under `runs/<student>/<date-time>/` as `results.json`,
-   `results.csv`, `results.html`, with `run.log`, `events.jsonl` and every trial's recording. Afterwards you can keep
+   `results.csv`, `results.html` (starting with a **deck summary** laid out like the course's 2-page template, ready
+   to copy into your slides), `summary.md`, `latency_chart.svg`, with `run.log`, `events.jsonl` and every trial's recording. Afterwards you can keep
    review recordings (stereo: left = test audio, right = your assistant) named `ok_…` / `FAIL_…`.
 
 Other commands: `python -m fdbench check` (pre-flight only), `run` (no questions, all flags), `score RUN_DIR`
@@ -49,6 +51,7 @@ Try it without any audio device: `python tools/make_dev_dataset.py` then
 | v1.5 | Respond / Resume / Uncertain / Unknown for interruption, backchannel, talking to others, background speech | scenario-dependent |
 | v1.5 | Stop latency t_stop, response latency t_resp | lower |
 | v1.5 | Voice change after an interruption: Δ WPM, Δ pitch mean/SD, Δ intensity mean/SD, Δ UTMOSv2, paired t-test | see METHOD |
+| course | **Stage latency** (template section 5): E2E (speaker − VAD end), ASR final, LLM TTFT, TTS TTFB, barge-in, mean + p95 over N phrases × M runs on the Pi's clock; WER of her own ASR; context size per LLM call; tool-call time. Stages come from the assistant's marks: automatic for Pipecat, one `mark()` call per stage otherwise ([docs/STAGES.md](docs/STAGES.md)) | lower, vs. targets |
 | ours | **Machine resources** during the run: CPU per core and per process (assistant, ASR/TTS/tools MCP), RAM, temperature, ARM clock, Raspberry Pi throttle flags, lined up with each trial | context for the latencies |
 
 Every formula, the paper source and each deviation from the papers is in [docs/METHOD.md](docs/METHOD.md).

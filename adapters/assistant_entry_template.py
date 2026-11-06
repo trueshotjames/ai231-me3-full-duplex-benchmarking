@@ -1,6 +1,6 @@
 """Template: how fd-benchmark starts YOUR assistant in benchmark mode.
 
-Copy this file to fd-benchmark/assistant_entry.py (that copy is yours; git ignores it) and fill in the three parts.
+Copy this file to fd-benchmark/assistant_entry.py (that copy is yours; git ignores it) and fill in the three parts (describe() is optional).
 Then check it with:   PROJECT_PYTHON fd-benchmark/launch_assistant.py --check
 Your project code stays as it is, unless it has no way to accept a Pipecat transport (see step 4B of docs/GUIDE.md).
 
@@ -20,6 +20,14 @@ PROJECT_MARKER = "main.py"                       # e.g. "assistant/main.py", "bo
 def audio_rates() -> tuple[int, int]:
     return 16000, 16000
 
+
+# (optional) Model versions for the results card in the report. Delete if you prefer --models on the fdbench side.
+def describe() -> dict:
+    return {}   # e.g. {"ASR": "Deepgram nova-3", "LLM": "claude-haiku-5-5", "TTS": "Cartesia sonic-2", "VAD": "Silero v5"}
+
+
+# Stage timings (VAD end, ASR final, LLM first token, TTS first audio) are picked up automatically: the launcher adds
+# pipecat_marks.FdbenchObserver to every PipelineWorker / PipelineTask you create. Nothing to add here (docs/STAGES.md).
 
 # 3. Build your pipeline with `transport` and return (a coroutine that runs it, an async function that stops it).
 async def build(transport, log_dir: Path):
